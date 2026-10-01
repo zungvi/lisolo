@@ -30,7 +30,7 @@
 
 <resources>
     <string name="pref_about_message" translatable="false">
-			Snikket is based on Conversations, a free and open source XMPP client. (https://conversations.im)
+			Zungvi Messenger is based on Snikket and Conversations, free and open source XMPP clients. (https://snikket.org, https://conversations.im)
 			\n\nCopyright © 2014-2026 Daniel Gultsch
 			\n\nThis program is free software: you can redistribute it and/or modify
 			it under the terms of the GNU General Public License as published by
@@ -42,7 +42,7 @@
 			GNU General Public License for more details.
 			\n\nYou should have received a copy of the GNU General Public License
 			along with this program. If not, see https://www.gnu.org/licenses
-			\n\nDownload the full source code at https://github.com/snikket-im/snikket-android
+			\n\nDownload the upstream source code at https://github.com/snikket-im/snikket-android
 			\n\n\nThird-party libraries:
 
 			\n\nAndroid Jetpack\nhttps://android.googlesource.com/platform/frameworks/support\n(Apache License, Version 2.0)

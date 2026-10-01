@@ -57,6 +57,7 @@ import im.conversations.android.xmpp.model.occupant.OccupantId;
 import im.conversations.android.xmpp.model.oob.OutOfBandData;
 import im.conversations.android.xmpp.model.pubsub.event.Event;
 import im.conversations.android.xmpp.model.reactions.Reactions;
+import im.conversations.android.xmpp.model.reply.Reply;
 import im.conversations.android.xmpp.model.retraction.Retract;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -277,7 +278,7 @@ public class MessageParser extends AbstractParser
             timestamp =
                     AbstractParser.parseTimestamp(original, AbstractParser.parseTimestamp(packet));
         }
-        final LocalizedContent body = packet.getBody();
+        LocalizedContent body = packet.getBody();
         final Element mucUserElement = packet.findChild("x", Namespace.MUC_USER);
         final boolean isTypeGroupChat =
                 packet.getType()
@@ -290,6 +291,7 @@ public class MessageParser extends AbstractParser
         final String oobUrl = oob != null ? oob.getURL() : null;
         final var replace = packet.getExtension(Replace.class);
         final var replacementId = replace == null ? null : replace.getId();
+        final var reply = packet.getExtension(Reply.class);
         final var axolotlEncrypted = packet.getOnlyExtension(Encrypted.class);
         // TODO this can probably be refactored to be final
         int status;
@@ -350,6 +352,9 @@ public class MessageParser extends AbstractParser
             if (getManager(MultiUserChatManager.class).handleStatusMessage(original)) {
                 return;
             }
+        }
+        if (body != null && packet.hasExtension(Reply.class)) {
+            body = Fallback.strip(packet, Reply.class, Body.class, body);
         }
         final boolean bodyIsFallback;
         if (body != null && packet.hasExtension(Reactions.class)) {
@@ -520,6 +525,17 @@ public class MessageParser extends AbstractParser
             message.setCounterpart(counterpart);
             message.setRemoteMsgId(remoteMsgId);
             message.setServerMsgId(serverMsgId);
+            if (reply != null && reply.getId() != null) {
+                final Jid replyTo = reply.getTo();
+                final String preview =
+                        body == null
+                                ? null
+                                : body.content.replaceAll("(?m)^> ?", "").trim();
+                message.setReply(
+                        replyTo == null ? null : replyTo.toString(),
+                        reply.getId(),
+                        Strings.emptyToNull(preview));
+            }
             message.setCarbon(isCarbon);
             message.setTime(timestamp);
             if (body != null && body.content != null && body.content.equals(oobUrl)) {

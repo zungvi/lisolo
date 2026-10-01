@@ -520,10 +520,10 @@
     <string name="no_storage_permission">Grant %1$s access to external storage</string>
     <string name="no_camera_permission">Grant %1$s access to the camera</string>
     <string name="no_contacts_permission">%1$s needs access to your contacts</string>
-    <string name="quicksy_wants_your_consent">Quicksy asks for your consent to use your data</string>
+    <string name="quicksy_wants_your_consent">This app asks for your consent to use your data</string>
     <string name="sync_with_contacts">Contact list integration</string>
     <string name="sync_with_contacts_long">%1$s processes your contact list locally, on your device, to show you the names and profile pictures for matching contacts on XMPP.\n\nNo contact list data ever leaves your device!</string>
-    <string name="sync_with_contacts_quicksy_static" translatable="false"><![CDATA[Quicksy syncs your contact list in regular intervals to make suggestions about possible contacts, who are already using the app, even when the app is closed or not in use.<br><br>Find more information in our <a href="https://quicksy.im/privacy.htm">Privacy Policy</a>.]]></string>
+    <string name="sync_with_contacts_quicksy_static" translatable="false"><![CDATA[This app syncs your contact list in regular intervals to make suggestions about possible contacts who are already using the app, even when the app is closed or not in use.<br><br>Find more information in our <a href="https://zungvi.com/privacy">Privacy Policy</a>.]]></string>
     <string name="notify_on_all_messages">Notify on all messages</string>
     <string name="notify_only_when_highlighted">Notify only when mentioned</string>
     <string name="notify_never">Notifications disabled</string>
@@ -548,10 +548,10 @@
     <string name="no_application_to_share_uri">No app found to share URI</string>
     <string name="share_uri_with">Share URI with…</string>
     <string name="welcome_header">Join the Conversation</string>
-    <string name="welcome_header_quicksy">Welcome to Quicksy!</string>
-    <string name="welcome_text_quicksy_static" translatable="false"><![CDATA[· Quicksy syncs your contact list in regular intervals to make suggestions about possible contacts who are already on Quicksy even when the app is closed or not in use.<br>· Quicksy shares and stores images, audio recordings, videos and other media to deliver them to the intended recipients. Files will be stored for up to 30 days.<br><br>Find more information in our <a href="https://quicksy.im/privacy.htm">Privacy Policy</a>.]]></string>
+    <string name="welcome_header_quicksy">Welcome to Zungvi Messenger!</string>
+    <string name="welcome_text_quicksy_static" translatable="false"><![CDATA[· Zungvi Messenger syncs your contact list in regular intervals to make suggestions about possible contacts who are already using the app even when the app is closed or not in use.<br>· Zungvi Messenger shares and stores images, audio recordings, videos and other media to deliver them to the intended recipients. Files will be stored for up to 30 days.<br><br>Find more information in our <a href="https://zungvi.com/privacy">Privacy Policy</a>.]]></string>
     <string name="agree_and_continue">Agree and continue</string>
-    <string name="magic_create_text">A guide is set up for account creation on conversations.im.\nWhen picking conversations.im as a provider you will be able to communicate with users of other providers by giving them your full XMPP address.</string>
+    <string name="magic_create_text">A guide is set up for account creation on zungvi.com.\nWhen picking zungvi.com as a provider you will be able to communicate with users of other providers by giving them your full XMPP address.</string>
     <string name="your_full_jid_will_be">Your full XMPP address will be: %s</string>
     <string name="create_account">Create Account</string>
     <string name="use_own_provider">Use my own provider</string>
@@ -801,7 +801,7 @@
     <string name="choose_a_country">Choose a country</string>
     <string name="phone_number">phone number</string>
     <string name="verify_your_phone_number">Verify your phone number</string>
-    <string name="enter_country_code_and_phone_number">Quicksy will send an SMS message (carrier charges may apply) to verify your phone number. Enter your country code and phone number:</string>
+    <string name="enter_country_code_and_phone_number">This app will send an SMS message (carrier charges may apply) to verify your phone number. Enter your country code and phone number:</string>
     <string name="we_will_be_verifying"><![CDATA[We will be verifying the phone number<br/><br/><b>%s</b><br/><br/>Is this OK, or would you like to edit the number?]]></string>
     <string name="not_a_valid_phone_number">%s is not a valid phone number.</string>
     <string name="please_enter_your_phone_number">Please enter your phone number.</string>
@@ -901,12 +901,12 @@
     <string name="add_anway">Add anyway</string>
     <string name="this_looks_like_channel">This looks like a channel address</string>
     <string name="share_backup_files">Share backup files</string>
-    <string name="conversations_backup">Snikket backup</string>
+    <string name="conversations_backup">Zungvi Messenger backup</string>
     <string name="event">Event</string>
     <string name="open_backup">Open backup</string>
-    <string name="not_a_backup_file">The file you selected is not a Snikket backup file</string>
+    <string name="not_a_backup_file">The file you selected is not a Zungvi Messenger backup file</string>
     <string name="outdated_backup_file_format">You are trying to import an outdated backup file format</string>
-    <string name="non_quicksy_backup">Quicksy can only restore backups for quicksy.im accounts</string>
+    <string name="non_quicksy_backup">This app can only restore backups for accounts it supports</string>
     <string name="account_already_setup">This account has already been setup</string>
     <string name="please_enter_password">Please enter the password for this account</string>
     <string name="unable_to_perform_this_action">Could not perform this action</string>
@@ -1007,7 +1007,7 @@
     <string name="failed_deliveries">Failed deliveries</string>
     <string name="more_options">More options</string>
     <string name="no_application_found">No application found</string>
-    <string name="invite_to_app">Invite to Snikket</string>
+    <string name="invite_to_app">Invite to Zungvi</string>
     <string name="unable_to_parse_invite">Unable to parse invite</string>
     <string name="server_does_not_support_easy_onboarding_invites">Server does not support generating invites</string>
     <string name="no_active_accounts_support_this">No active accounts support this feature</string>

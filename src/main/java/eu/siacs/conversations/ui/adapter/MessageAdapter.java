@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.text.Spannable;
 import android.text.SpannableString;
@@ -244,6 +245,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         } else {
             setTextColor(viewHolder.time(), bubbleColor);
         }
+        viewHolder.time().setVisibility(View.VISIBLE);
         if (message.getEncryption() == Message.ENCRYPTION_NONE) {
             viewHolder.indicatorSecurity().setVisibility(View.GONE);
         } else {
@@ -1005,8 +1007,9 @@ public class MessageAdapter extends ArrayAdapter<Message> {
             }
         }
 
-        setBackgroundTint(viewHolder.messageBox(), bubbleColor);
+        setBubbleBackground(viewHolder, bubbleColor, received, mergeIntoTop, mergeIntoBottom);
         setTextColor(viewHolder.messageBody(), bubbleColor);
+        displayReplyPreview(viewHolder, message);
 
         if (received && viewHolder instanceof StartBubbleMessageItemViewHolder startViewHolder) {
             setTextColor(startViewHolder.encryption(), bubbleColor);
@@ -1049,6 +1052,9 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
 
         displayStatus(viewHolder, message, bubbleColor);
+        if (mergeIntoBottom) {
+            hideRepeatedGroupStatus(viewHolder);
+        }
         return viewHolder.root();
     }
 
@@ -1205,6 +1211,46 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         root.setPadding(horizontal, top, horizontal, bottom);
     }
 
+    private static void setBubbleBackground(
+            final BubbleMessageItemViewHolder viewHolder,
+            final BubbleColor bubbleColor,
+            final boolean received,
+            final boolean mergeIntoTop,
+            final boolean mergeIntoBottom) {
+        final var resources = viewHolder.messageBox().getResources();
+        final float radius = resources.getDimensionPixelSize(R.dimen.message_bubble_corner_radius);
+        final float joined = resources.getDimensionPixelSize(R.dimen.message_bubble_joined_radius);
+        final float topStart = mergeIntoTop && received ? joined : radius;
+        final float topEnd = mergeIntoTop && !received ? joined : radius;
+        final float bottomStart = mergeIntoBottom && received ? joined : radius;
+        final float bottomEnd = mergeIntoBottom && !received ? joined : radius;
+        final var background = new GradientDrawable();
+        background.setShape(GradientDrawable.RECTANGLE);
+        background.setColor(bubbleToColorStateList(viewHolder.messageBox(), bubbleColor).getDefaultColor());
+        background.setCornerRadii(
+                new float[] {
+                    topStart,
+                    topStart,
+                    topEnd,
+                    topEnd,
+                    bottomEnd,
+                    bottomEnd,
+                    bottomStart,
+                    bottomStart
+                });
+        viewHolder.messageBox().setBackground(background);
+    }
+
+    private static void hideRepeatedGroupStatus(final BubbleMessageItemViewHolder viewHolder) {
+        viewHolder.time().setVisibility(View.GONE);
+        viewHolder.indicatorSecurity().setVisibility(View.GONE);
+        viewHolder.indicatorEdit().setVisibility(View.GONE);
+        viewHolder.indicatorReceived().setVisibility(View.GONE);
+        if (viewHolder instanceof StartBubbleMessageItemViewHolder startViewHolder) {
+            startViewHolder.encryption().setVisibility(View.GONE);
+        }
+    }
+
     private void setRequiresAvatar(
             final BubbleMessageItemViewHolder viewHolder, final boolean requiresAvatar) {
         final var layoutParams = viewHolder.contactPicture().getLayoutParams();
@@ -1309,6 +1355,30 @@ public class MessageAdapter extends ArrayAdapter<Message> {
 
     private void sendReactions(final Message message, final Collection<String> reactions) {
         activity.sendReactions(message, reactions);
+    }
+
+    private void displayReplyPreview(
+            final BubbleMessageItemViewHolder viewHolder, final Message message) {
+        if (message.isReply() && !Strings.isNullOrEmpty(message.getReplyPreview())) {
+            viewHolder.replyPreview().setVisibility(View.VISIBLE);
+            viewHolder.replyPreviewSender().setText(getReplySender(message));
+            viewHolder.replyPreviewBody().setText(message.getReplyPreview());
+        } else {
+            viewHolder.replyPreview().setVisibility(View.GONE);
+        }
+    }
+
+    private String getReplySender(final Message message) {
+        final String replyTo = message.getReplyTo();
+        if (!Strings.isNullOrEmpty(replyTo)) {
+            try {
+                final Jid jid = Jid.of(replyTo);
+                return jid.getLocal();
+            } catch (final IllegalArgumentException ignored) {
+                return replyTo;
+            }
+        }
+        return activity.getString(R.string.reply);
     }
 
     private void addReaction(final Message message) {
@@ -1556,6 +1626,12 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         protected abstract ImageView contactPicture();
 
         protected abstract ChipGroup reactions();
+
+        protected abstract LinearLayout replyPreview();
+
+        protected abstract TextView replyPreviewSender();
+
+        protected abstract TextView replyPreviewBody();
     }
 
     private static class StartBubbleMessageItemViewHolder extends BubbleMessageItemViewHolder {
@@ -1629,6 +1705,21 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         protected ChipGroup reactions() {
             return this.binding.reactions;
         }
+
+        @Override
+        protected LinearLayout replyPreview() {
+            return this.binding.messageContent.replyPreview;
+        }
+
+        @Override
+        protected TextView replyPreviewSender() {
+            return this.binding.messageContent.replyPreviewSender;
+        }
+
+        @Override
+        protected TextView replyPreviewBody() {
+            return this.binding.messageContent.replyPreviewBody;
+        }
     }
 
     private static class EndBubbleMessageItemViewHolder extends BubbleMessageItemViewHolder {
@@ -1698,6 +1789,21 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         @Override
         protected ChipGroup reactions() {
             return this.binding.reactions;
+        }
+
+        @Override
+        protected LinearLayout replyPreview() {
+            return this.binding.messageContent.replyPreview;
+        }
+
+        @Override
+        protected TextView replyPreviewSender() {
+            return this.binding.messageContent.replyPreviewSender;
+        }
+
+        @Override
+        protected TextView replyPreviewBody() {
+            return this.binding.messageContent.replyPreviewBody;
         }
     }
 

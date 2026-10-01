@@ -46,11 +46,11 @@
     <color name="black87">#de000000</color>
     <color name="black54">#8a000000</color>
 
-    <color name="snikket500">#ffFEDA06</color>
-    <color name="snikket600">#ffdbbc04</color>
-    <color name="snikket700">#ffb99e03</color>
-    <color name="snikket800">#ff988202</color>
-    <color name="snikket900">#ff786601</color>
+    <color name="snikket500">#ffFF7A00</color>
+    <color name="snikket600">#ffE56800</color>
+    <color name="snikket700">#ffB55600</color>
+    <color name="snikket800">#ff873900</color>
+    <color name="snikket900">#ff4A2100</color>
 
-    <color name="snikket_blue">#ff408DCA</color>
+    <color name="snikket_blue">#ffE56800</color>
 </resources>

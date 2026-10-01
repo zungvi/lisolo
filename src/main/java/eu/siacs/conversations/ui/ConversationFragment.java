@@ -40,6 +40,7 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.View.OnClickListener;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
@@ -165,9 +166,7 @@ public class ConversationFragment extends XmppFragment
                 MessageAdapter.OnContactPictureLongClicked,
                 MessageAdapter.OnContactPictureClicked {
 
-    // Reactions are disabled in Snikket Android
-    // until we have support on other platforms.
-    private static boolean reactionsEnabled = false;
+    private static boolean reactionsEnabled = true;
 
     private static Instant ackModeration = Instant.MIN;
 
@@ -217,6 +216,11 @@ public class ConversationFragment extends XmppFragment
     private FragmentConversationBinding binding;
     private Toast messageLoaderToast;
     private boolean reInitRequiredOnStart = true;
+    private float messageSwipeStartX = 0f;
+    private float messageSwipeStartY = 0f;
+    private int messageSwipeStartPosition = AdapterView.INVALID_POSITION;
+    private boolean messageSwipeHandled = false;
+    private Message replyToMessage = null;
     private final OnClickListener clickToMuc =
             new OnClickListener() {
 
@@ -978,6 +982,7 @@ public class ConversationFragment extends XmppFragment
         if (conversation.getCorrectingMessage() == null) {
             message = new Message(conversation, body, conversation.getNextEncryption());
             Message.configurePrivateMessage(message);
+            applyReplyToMessage(message);
         } else {
             message = conversation.getCorrectingMessage();
             message.setBody(body);
@@ -1257,9 +1262,11 @@ public class ConversationFragment extends XmppFragment
         binding.textinput.setRichContentListener(new String[] {"image/*"}, mEditorContentListener);
 
         binding.textSendButton.setOnClickListener(this.mSendButtonListener);
+        binding.replyPreviewClose.setOnClickListener(v -> clearReplyToMessage());
 
         binding.scrollToBottomButton.setOnClickListener(this.mScrollButtonListener);
         binding.messagesView.setOnScrollListener(mOnScrollListener);
+        binding.messagesView.setOnTouchListener(this::onMessagesTouch);
         binding.messagesView.setTranscriptMode(ListView.TRANSCRIPT_MODE_NORMAL);
         binding.mediaPreview.setAdapter(mediaPreviewAdapter);
         messageListAdapter = new MessageAdapter((XmppActivity) getActivity(), this.messageList);
@@ -1299,6 +1306,110 @@ public class ConversationFragment extends XmppFragment
 
     private void quoteMessage(Message message) {
         quoteText(MessageUtils.prepareQuote(message));
+    }
+
+    private void setReplyToMessage(final Message message) {
+        this.replyToMessage = message;
+        binding.replyPreview.setVisibility(View.VISIBLE);
+        binding.replyPreviewSender.setText(getReplySender(message));
+        binding.replyPreviewBody.setText(getReplyPreview(message));
+        binding.textinput.requestFocus();
+        final InputMethodManager inputMethodManager =
+                (InputMethodManager)
+                        requireContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (inputMethodManager != null) {
+            inputMethodManager.showSoftInput(binding.textinput, InputMethodManager.SHOW_IMPLICIT);
+        }
+    }
+
+    private void clearReplyToMessage() {
+        this.replyToMessage = null;
+        if (binding != null) {
+            binding.replyPreview.setVisibility(View.GONE);
+        }
+    }
+
+    private void applyReplyToMessage(final Message message) {
+        final Message reply = this.replyToMessage;
+        if (reply == null) {
+            return;
+        }
+        final Jid replyTo =
+                reply.getTrueCounterpart() != null
+                        ? reply.getTrueCounterpart()
+                        : reply.getCounterpart();
+        message.setReply(
+                replyTo == null ? null : replyTo.toString(),
+                reply.getReplyIdWireFormat(),
+                getReplyPreview(reply));
+        clearReplyToMessage();
+    }
+
+    private String getReplySender(final Message message) {
+        final Contact contact = message.getContact();
+        if (contact != null && !Strings.isNullOrEmpty(contact.getDisplayName())) {
+            return contact.getDisplayName();
+        }
+        final Jid counterpart = message.getCounterpart();
+        return counterpart == null ? getString(R.string.reply) : counterpart.getLocal();
+    }
+
+    private static String getReplyPreview(final Message message) {
+        final String body = message.getBody() == null ? "" : message.getBody().trim();
+        if (!body.isEmpty()) {
+            return body.replaceAll("\\s+", " ");
+        }
+        return message.isFileOrImage() ? "Attachment" : "";
+    }
+
+    private boolean onMessagesTouch(final View view, final MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN -> {
+                messageSwipeStartX = event.getX();
+                messageSwipeStartY = event.getY();
+                messageSwipeStartPosition =
+                        binding.messagesView.pointToPosition(
+                                Math.round(messageSwipeStartX), Math.round(messageSwipeStartY));
+                messageSwipeHandled = false;
+            }
+            case MotionEvent.ACTION_MOVE -> {
+                if (messageSwipeHandled
+                        || messageSwipeStartPosition == AdapterView.INVALID_POSITION) {
+                    break;
+                }
+                final float deltaX = event.getX() - messageSwipeStartX;
+                final float deltaY = event.getY() - messageSwipeStartY;
+                final int touchSlop = ViewConfiguration.get(view.getContext()).getScaledTouchSlop();
+                if (Math.abs(deltaX) > touchSlop * 4 && Math.abs(deltaX) > Math.abs(deltaY) * 2) {
+                    maybeReplyToSwipedMessage(messageSwipeStartPosition);
+                    messageSwipeHandled = true;
+                }
+            }
+            case MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                messageSwipeStartPosition = AdapterView.INVALID_POSITION;
+                messageSwipeHandled = false;
+            }
+            default -> {}
+        }
+        return false;
+    }
+
+    private void maybeReplyToSwipedMessage(final int position) {
+        synchronized (this.messageList) {
+            if (position < 0 || position >= this.messageList.size()) {
+                return;
+            }
+            final Message message = this.messageList.get(position);
+            if (message.getType() == Message.TYPE_STATUS
+                    || message.getType() == Message.TYPE_RTP_SESSION
+                    || message.isDeleted()
+                    || Strings.isNullOrEmpty(message.getReplyIdWireFormat())) {
+                return;
+            }
+            if (!getReplyPreview(message).isEmpty()) {
+                setReplyToMessage(message);
+            }
+        }
     }
 
     @Override

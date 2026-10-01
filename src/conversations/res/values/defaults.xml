@@ -2,4 +2,5 @@
 <resources>
     <bool name="show_avatars_accounts">true</bool>
     <bool name="last_activity">false</bool>
+    <string name="app_server">zungvi.com</string>
 </resources>

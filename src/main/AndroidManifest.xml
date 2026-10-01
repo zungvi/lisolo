@@ -95,7 +95,7 @@
         android:networkSecurityConfig="@xml/network_security_configuration"
         android:preserveLegacyExternalStorage="true"
         android:requestLegacyExternalStorage="true"
-        android:theme="@style/Theme.Snikket"
+        android:theme="@style/Theme.Zungvi"
         tools:targetApi="tiramisu">
 
         <meta-data

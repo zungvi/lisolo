@@ -116,9 +116,9 @@ android {
         versionCode 42167
         versionName "2.19.8r2"
         archivesBaseName += "-$versionName"
-        applicationId "org.snikket.android"
+        applicationId "com.zungvi.messenger"
         resValue "string", "applicationId", applicationId
-        def appName = "Snikket"
+        def appName = "Zungvi Messenger"
         resValue "string", "app_name", appName
         buildConfigField "String", "APP_NAME", "\"$appName\""
     }
@@ -166,7 +166,7 @@ android {
 
         conversations {
             dimension "mode"
-            buildConfigField "String", "PRIVACY_POLICY", "\"https://snikket.org/app/privacy/\""
+            buildConfigField "String", "PRIVACY_POLICY", "\"https://zungvi.com/privacy\""
         }
 
         playstore {

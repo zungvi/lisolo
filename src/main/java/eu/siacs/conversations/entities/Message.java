@@ -84,6 +84,9 @@ public class Message extends AbstractEntity
     public static final String DELETED = "deleted";
     public static final String OCCUPANT_ID = "occupantId";
     public static final String REACTIONS = "reactions";
+    public static final String REPLY_TO = "replyTo";
+    public static final String REPLY_ID = "replyId";
+    public static final String REPLY_PREVIEW = "replyPreview";
     public static final String ME_COMMAND = "/me ";
 
     public static final String ERROR_MESSAGE_CANCELLED = "eu.siacs.conversations.cancelled";
@@ -116,6 +119,9 @@ public class Message extends AbstractEntity
     private Set<ReadByMarker> readByMarkers = new CopyOnWriteArraySet<>();
     private String occupantId;
     private Collection<Reaction> reactions = Collections.emptyList();
+    private String replyTo;
+    private String replyId;
+    private String replyPreview;
 
     private Boolean isGeoUri = null;
     private Boolean isEmojisOnly = null;
@@ -161,6 +167,9 @@ public class Message extends AbstractEntity
                 false,
                 null,
                 null,
+                null,
+                null,
+                null,
                 Collections.emptyList());
     }
 
@@ -188,6 +197,9 @@ public class Message extends AbstractEntity
                 null,
                 false,
                 false,
+                null,
+                null,
+                null,
                 null,
                 null,
                 Collections.emptyList());
@@ -218,6 +230,9 @@ public class Message extends AbstractEntity
             final boolean deleted,
             final String bodyLanguage,
             final String occupantId,
+            final String replyTo,
+            final String replyId,
+            final String replyPreview,
             final Collection<Reaction> reactions) {
         this.conversation = conversation;
         this.uuid = uuid;
@@ -243,6 +258,9 @@ public class Message extends AbstractEntity
         this.deleted = deleted;
         this.bodyLanguage = bodyLanguage;
         this.occupantId = occupantId;
+        this.replyTo = replyTo;
+        this.replyId = replyId;
+        this.replyPreview = replyPreview;
         this.reactions = reactions;
     }
 
@@ -273,6 +291,9 @@ public class Message extends AbstractEntity
                 cursor.getInt(cursor.getColumnIndexOrThrow(DELETED)) > 0,
                 cursor.getString(cursor.getColumnIndexOrThrow(BODY_LANGUAGE)),
                 cursor.getString(cursor.getColumnIndexOrThrow(OCCUPANT_ID)),
+                cursor.getString(cursor.getColumnIndexOrThrow(REPLY_TO)),
+                cursor.getString(cursor.getColumnIndexOrThrow(REPLY_ID)),
+                cursor.getString(cursor.getColumnIndexOrThrow(REPLY_PREVIEW)),
                 Reaction.fromString(cursor.getString(cursor.getColumnIndexOrThrow(REACTIONS))));
     }
 
@@ -344,6 +365,9 @@ public class Message extends AbstractEntity
         values.put(DELETED, deleted ? 1 : 0);
         values.put(BODY_LANGUAGE, bodyLanguage);
         values.put(OCCUPANT_ID, occupantId);
+        values.put(REPLY_TO, replyTo);
+        values.put(REPLY_ID, replyId);
+        values.put(REPLY_PREVIEW, replyPreview);
         values.put(REACTIONS, Reaction.toString(this.reactions));
         return values;
     }
@@ -460,6 +484,16 @@ public class Message extends AbstractEntity
 
     public void setServerMsgId(String id) {
         this.serverMsgId = id;
+    }
+
+    public String getReplyIdWireFormat() {
+        if (this.conversation.getMode() == Conversational.MODE_MULTI) {
+            return this.serverMsgId;
+        }
+        if (this.remoteMsgId != null) {
+            return this.remoteMsgId;
+        }
+        return this.uuid;
     }
 
     public boolean isRead() {
@@ -722,6 +756,28 @@ public class Message extends AbstractEntity
 
     public Collection<Reaction> getReactions() {
         return this.reactions;
+    }
+
+    public boolean isReply() {
+        return this.replyId != null;
+    }
+
+    public String getReplyTo() {
+        return this.replyTo;
+    }
+
+    public String getReplyId() {
+        return this.replyId;
+    }
+
+    public String getReplyPreview() {
+        return this.replyPreview;
+    }
+
+    public void setReply(final String to, final String id, final String preview) {
+        this.replyTo = to;
+        this.replyId = id;
+        this.replyPreview = preview;
     }
 
     public Reaction.Aggregated getAggregatedReactions() {

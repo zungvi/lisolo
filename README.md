@@ -1,8 +1,8 @@
-# Snikket Android client
+# Zungvi Messenger Android client
 
-This is the source code for the Snikket Android client.
+This is the source code for the Zungvi Messenger Android client.
 
-Snikket for Android is based on [Conversations](https://conversations.im/) by Daniel Gultsch.
+Zungvi Messenger for Android is based on [Snikket](https://snikket.org/) and [Conversations](https://conversations.im/) by Daniel Gultsch.
 
 The official Conversations repository is available at: https://codeberg.org/iNPUTmice/Conversations
 

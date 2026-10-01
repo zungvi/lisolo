@@ -68,6 +68,64 @@
                 android:paddingHorizontal="16dp"
                 android:paddingVertical="8dp">
 
+                <LinearLayout
+                    android:id="@+id/reply_preview"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:background="?colorSurfaceContainerHigh"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="8dp"
+                    android:paddingTop="6dp"
+                    android:paddingEnd="4dp"
+                    android:paddingBottom="6dp"
+                    android:visibility="gone"
+                    tools:visibility="visible">
+
+                    <View
+                        android:layout_width="3dp"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="8dp"
+                        android:background="?colorTertiary" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/reply_preview_sender"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:textAppearance="?textAppearanceLabelMedium"
+                            android:textColor="?colorTertiary"
+                            tools:text="u16303" />
+
+                        <TextView
+                            android:id="@+id/reply_preview_body"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:maxLines="2"
+                            android:textAppearance="?textAppearanceBodySmall"
+                            android:textColor="?colorOnSurfaceVariant"
+                            tools:text="Je ne sais pas pour le prochain rdv" />
+                    </LinearLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/reply_preview_close"
+                        style="?attr/materialIconButtonStyle"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:contentDescription="@string/cancel"
+                        app:icon="@drawable/ic_close_24dp"
+                        app:iconSize="18dp" />
+                </LinearLayout>
+
                 <TextView
                     android:id="@+id/text_input_hint"
                     android:layout_width="wrap_content"

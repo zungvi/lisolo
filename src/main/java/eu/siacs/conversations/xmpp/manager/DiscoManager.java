@@ -70,6 +70,7 @@ public class DiscoManager extends AbstractManager {
                     Namespace.PING,
                     Namespace.VERSION,
                     Namespace.CHAT_STATES,
+                    Namespace.REPLY,
                     Namespace.REACTIONS);
     private final List<String> MESSAGE_CONFIRMATION_FEATURES =
             Arrays.asList(Namespace.CHAT_MARKERS, Namespace.DELIVERY_RECEIPTS);

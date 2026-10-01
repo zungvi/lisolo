@@ -1,5 +1,6 @@
 package eu.siacs.conversations.generator;
 
+import com.google.common.base.Strings;
 import eu.siacs.conversations.crypto.axolotl.AxolotlService;
 import eu.siacs.conversations.crypto.axolotl.XmppAxolotlMessage;
 import eu.siacs.conversations.entities.Account;
@@ -10,8 +11,11 @@ import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.xml.Namespace;
 import eu.siacs.conversations.xmpp.Jid;
 import im.conversations.android.xmpp.model.correction.Replace;
+import im.conversations.android.xmpp.model.fallback.Body;
+import im.conversations.android.xmpp.model.fallback.Fallback;
 import im.conversations.android.xmpp.model.hints.Store;
 import im.conversations.android.xmpp.model.markers.Markable;
+import im.conversations.android.xmpp.model.reply.Reply;
 import im.conversations.android.xmpp.model.unique.OriginId;
 
 public class MessageGenerator extends AbstractGenerator {
@@ -60,6 +64,17 @@ public class MessageGenerator extends AbstractGenerator {
         if (message.edited()) {
             packet.addExtension(new Replace(message.getEditedIdWireFormat()));
         }
+        if (message.isReply()) {
+            final var reply = new Reply();
+            reply.setId(message.getReplyId());
+            if (message.getReplyTo() != null) {
+                try {
+                    reply.setTo(Jid.of(message.getReplyTo()));
+                } catch (final IllegalArgumentException ignored) {
+                }
+            }
+            packet.addExtension(reply);
+        }
         return packet;
     }
 
@@ -98,6 +113,15 @@ public class MessageGenerator extends AbstractGenerator {
             packet.addChild("x", Namespace.OOB).addChild("url").setContent(content);
         } else {
             content = message.getBody();
+        }
+        if (message.isReply() && !Strings.isNullOrEmpty(message.getReplyPreview())) {
+            final String fallback = "> " + message.getReplyPreview() + "\n";
+            content = fallback + content;
+            final var fallbackElement = new Fallback();
+            fallbackElement.setFor(Namespace.REPLY);
+            final var fallbackBody = fallbackElement.addExtension(new Body());
+            fallbackBody.setRange(0, fallback.length());
+            packet.addExtension(fallbackElement);
         }
         packet.setBody(content);
         return packet;

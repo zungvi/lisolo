@@ -93,37 +93,43 @@
         <item name="widgetLayout">@layout/preference_material_switch</item>
     </style>
 
-    <style name="Theme.Snikket" parent="Theme.Conversations3">
+    <style name="Theme.Zungvi" parent="Theme.Conversations3">
         <item name="colorSurfaceContainerLowest">@color/md_theme_light_surfaceContainerLowest</item>
         <item name="colorSurfaceContainerLow">@color/md_theme_light_surfaceContainerLow</item>
         <item name="colorSurfaceContainer">@color/md_theme_light_surfaceContainer</item>
         <item name="colorSurfaceContainerHigh">@color/md_theme_light_surfaceContainerHigh</item>
         <item name="colorSurfaceContainerHighest">@color/md_theme_light_surfaceContainerHighest</item>
 
-        <item name="textAppearanceMessageContentNormal">@style/TextAppearance.Snikket.MessageContentNormal</item>
-        <item name="textAppearanceMessageContentLarge">@style/TextAppearance.Snikket.MessageContentLarge</item>
+        <item name="textAppearanceMessageContentNormal">@style/TextAppearance.Zungvi.MessageContentNormal</item>
+        <item name="textAppearanceMessageContentLarge">@style/TextAppearance.Zungvi.MessageContentLarge</item>
     </style>
 
-    <style name="Theme.Snikket.Dark" parent="Theme.Conversations3.Dark">
+    <style name="Theme.Zungvi.Dark" parent="Theme.Conversations3.Dark">
         <item name="colorSurfaceContainerLowest">@color/md_theme_dark_surfaceContainerLowest</item>
         <item name="colorSurfaceContainerLow">@color/md_theme_dark_surfaceContainerLow</item>
         <item name="colorSurfaceContainer">@color/md_theme_dark_surfaceContainer</item>
         <item name="colorSurfaceContainerHigh">@color/md_theme_dark_surfaceContainerHigh</item>
         <item name="colorSurfaceContainerHighest">@color/md_theme_dark_surfaceContainerHighest</item>
 
-        <item name="textAppearanceMessageContentNormal">@style/TextAppearance.Snikket.MessageContentNormal</item>
-        <item name="textAppearanceMessageContentLarge">@style/TextAppearance.Snikket.MessageContentLarge</item>
+        <item name="textAppearanceMessageContentNormal">@style/TextAppearance.Zungvi.MessageContentNormal</item>
+        <item name="textAppearanceMessageContentLarge">@style/TextAppearance.Zungvi.MessageContentLarge</item>
     </style>
 
-    <style name="TextAppearance.Snikket.MessageContentNormal" parent="TextAppearance.Material3.BodyMedium">
+    <style name="Theme.Snikket" parent="Theme.Zungvi" />
+    <style name="Theme.Snikket.Dark" parent="Theme.Zungvi.Dark" />
+
+    <style name="TextAppearance.Zungvi.MessageContentNormal" parent="TextAppearance.Material3.BodyMedium">
         <item name="android:textSize">16sp</item>
         <item name="android:letterSpacing">0</item>
     </style>
 
-    <style name="TextAppearance.Snikket.MessageContentLarge" parent="TextAppearance.Material3.BodyLarge">
+    <style name="TextAppearance.Zungvi.MessageContentLarge" parent="TextAppearance.Material3.BodyLarge">
         <item name="android:textSize">20sp</item>
         <item name="android:letterSpacing">0</item>
     </style>
+
+    <style name="TextAppearance.Snikket.MessageContentNormal" parent="TextAppearance.Zungvi.MessageContentNormal" />
+    <style name="TextAppearance.Snikket.MessageContentLarge" parent="TextAppearance.Zungvi.MessageContentLarge" />
 
     <style name="ShapeAppearance.RoundedCornersBubble" parent="ShapeAppearance.MaterialComponents.SmallComponent">
         <item name="cornerFamily">rounded</item>
