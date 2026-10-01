@@ -11,10 +11,16 @@
     </style>
 
 
-    <style name="Theme.Conversations3.SplashScreen" parent="@style/Theme.Conversations3">
-        <item name="android:windowBackground">@drawable/background_splash_screen</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowFullscreen">true</item>
+    <!--
+      Driven by androidx.core:core-splashscreen, so the launch icon is the platform's own splash on
+      Android 12+ and a faithful emulation below it. The old approach painted a windowBackground
+      drawable, which on 12+ sat behind the system splash and produced a double flash.
+      ConversationActivity calls installSplashScreen() before super.onCreate().
+    -->
+    <style name="Theme.Conversations3.SplashScreen" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/md_theme_light_surface</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
+        <item name="postSplashScreenTheme">@style/Theme.Zungvi</item>
     </style>
 
     <style name="Theme.Conversations3.Dialog" parent="@style/Theme.Conversations3">
@@ -93,23 +99,75 @@
         <item name="widgetLayout">@layout/preference_material_switch</item>
     </style>
 
+
+    <!-- Applied through android:windowAnimationStyle on the app themes, so every screen push and
+         pop uses the same Material motion instead of the platform default. -->
+    <style name="Animation.Zungvi.Activity" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/activity_open_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/activity_open_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/activity_close_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/activity_close_exit</item>
+        <item name="android:taskOpenEnterAnimation">@anim/activity_open_enter</item>
+        <item name="android:taskOpenExitAnimation">@anim/activity_open_exit</item>
+        <item name="android:taskCloseEnterAnimation">@anim/activity_close_enter</item>
+        <item name="android:taskCloseExitAnimation">@anim/activity_close_exit</item>
+    </style>
+
     <style name="Theme.Zungvi" parent="Theme.Conversations3">
+        <item name="android:windowAnimationStyle">@style/Animation.Zungvi.Activity</item>
         <item name="colorSurfaceContainerLowest">@color/md_theme_light_surfaceContainerLowest</item>
         <item name="colorSurfaceContainerLow">@color/md_theme_light_surfaceContainerLow</item>
         <item name="colorSurfaceContainer">@color/md_theme_light_surfaceContainer</item>
         <item name="colorSurfaceContainerHigh">@color/md_theme_light_surfaceContainerHigh</item>
         <item name="colorSurfaceContainerHighest">@color/md_theme_light_surfaceContainerHighest</item>
 
+
+        <!-- Typography: see values/typography.xml -->
+        <item name="textAppearanceDisplayLarge">@style/TextAppearance.Zungvi.DisplayLarge</item>
+        <item name="textAppearanceDisplayMedium">@style/TextAppearance.Zungvi.DisplayMedium</item>
+        <item name="textAppearanceDisplaySmall">@style/TextAppearance.Zungvi.DisplaySmall</item>
+        <item name="textAppearanceHeadlineLarge">@style/TextAppearance.Zungvi.HeadlineLarge</item>
+        <item name="textAppearanceHeadlineMedium">@style/TextAppearance.Zungvi.HeadlineMedium</item>
+        <item name="textAppearanceHeadlineSmall">@style/TextAppearance.Zungvi.HeadlineSmall</item>
+        <item name="textAppearanceTitleLarge">@style/TextAppearance.Zungvi.TitleLarge</item>
+        <item name="textAppearanceTitleMedium">@style/TextAppearance.Zungvi.TitleMedium</item>
+        <item name="textAppearanceTitleSmall">@style/TextAppearance.Zungvi.TitleSmall</item>
+        <item name="textAppearanceBodyLarge">@style/TextAppearance.Zungvi.BodyLarge</item>
+        <item name="textAppearanceBodyMedium">@style/TextAppearance.Zungvi.BodyMedium</item>
+        <item name="textAppearanceBodySmall">@style/TextAppearance.Zungvi.BodySmall</item>
+        <item name="textAppearanceLabelLarge">@style/TextAppearance.Zungvi.LabelLarge</item>
+        <item name="textAppearanceLabelMedium">@style/TextAppearance.Zungvi.LabelMedium</item>
+        <item name="textAppearanceLabelSmall">@style/TextAppearance.Zungvi.LabelSmall</item>
+
         <item name="textAppearanceMessageContentNormal">@style/TextAppearance.Zungvi.MessageContentNormal</item>
         <item name="textAppearanceMessageContentLarge">@style/TextAppearance.Zungvi.MessageContentLarge</item>
     </style>
 
     <style name="Theme.Zungvi.Dark" parent="Theme.Conversations3.Dark">
+        <item name="android:windowAnimationStyle">@style/Animation.Zungvi.Activity</item>
         <item name="colorSurfaceContainerLowest">@color/md_theme_dark_surfaceContainerLowest</item>
         <item name="colorSurfaceContainerLow">@color/md_theme_dark_surfaceContainerLow</item>
         <item name="colorSurfaceContainer">@color/md_theme_dark_surfaceContainer</item>
         <item name="colorSurfaceContainerHigh">@color/md_theme_dark_surfaceContainerHigh</item>
         <item name="colorSurfaceContainerHighest">@color/md_theme_dark_surfaceContainerHighest</item>
+
+
+        <!-- Typography: see values/typography.xml -->
+        <item name="textAppearanceDisplayLarge">@style/TextAppearance.Zungvi.DisplayLarge</item>
+        <item name="textAppearanceDisplayMedium">@style/TextAppearance.Zungvi.DisplayMedium</item>
+        <item name="textAppearanceDisplaySmall">@style/TextAppearance.Zungvi.DisplaySmall</item>
+        <item name="textAppearanceHeadlineLarge">@style/TextAppearance.Zungvi.HeadlineLarge</item>
+        <item name="textAppearanceHeadlineMedium">@style/TextAppearance.Zungvi.HeadlineMedium</item>
+        <item name="textAppearanceHeadlineSmall">@style/TextAppearance.Zungvi.HeadlineSmall</item>
+        <item name="textAppearanceTitleLarge">@style/TextAppearance.Zungvi.TitleLarge</item>
+        <item name="textAppearanceTitleMedium">@style/TextAppearance.Zungvi.TitleMedium</item>
+        <item name="textAppearanceTitleSmall">@style/TextAppearance.Zungvi.TitleSmall</item>
+        <item name="textAppearanceBodyLarge">@style/TextAppearance.Zungvi.BodyLarge</item>
+        <item name="textAppearanceBodyMedium">@style/TextAppearance.Zungvi.BodyMedium</item>
+        <item name="textAppearanceBodySmall">@style/TextAppearance.Zungvi.BodySmall</item>
+        <item name="textAppearanceLabelLarge">@style/TextAppearance.Zungvi.LabelLarge</item>
+        <item name="textAppearanceLabelMedium">@style/TextAppearance.Zungvi.LabelMedium</item>
+        <item name="textAppearanceLabelSmall">@style/TextAppearance.Zungvi.LabelSmall</item>
 
         <item name="textAppearanceMessageContentNormal">@style/TextAppearance.Zungvi.MessageContentNormal</item>
         <item name="textAppearanceMessageContentLarge">@style/TextAppearance.Zungvi.MessageContentLarge</item>
@@ -118,23 +176,9 @@
     <style name="Theme.Snikket" parent="Theme.Zungvi" />
     <style name="Theme.Snikket.Dark" parent="Theme.Zungvi.Dark" />
 
-    <style name="TextAppearance.Zungvi.MessageContentNormal" parent="TextAppearance.Material3.BodyMedium">
-        <item name="android:textSize">16sp</item>
-        <item name="android:letterSpacing">0</item>
-    </style>
-
-    <style name="TextAppearance.Zungvi.MessageContentLarge" parent="TextAppearance.Material3.BodyLarge">
-        <item name="android:textSize">20sp</item>
-        <item name="android:letterSpacing">0</item>
-    </style>
-
-    <style name="TextAppearance.Snikket.MessageContentNormal" parent="TextAppearance.Zungvi.MessageContentNormal" />
-    <style name="TextAppearance.Snikket.MessageContentLarge" parent="TextAppearance.Zungvi.MessageContentLarge" />
-
     <style name="ShapeAppearance.RoundedCornersBubble" parent="ShapeAppearance.MaterialComponents.SmallComponent">
         <item name="cornerFamily">rounded</item>
-        <!-- 16dp matches drawable/background_message_bubble corner radius -->
-        <item name="cornerSize">16dp</item>
+        <item name="cornerSize">@dimen/message_bubble_corner_radius</item>
     </style>
 
     <style name="ShapeAppearance.RoundedCornersInsideBubble" parent="ShapeAppearance.MaterialComponents.SmallComponent">

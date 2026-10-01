@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Forward navigation, incoming screen. A short translation rather than a full-width slide: the
+  screen reads as arriving without the content appearing to travel a long distance.
+-->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@interpolator/emphasized_decelerate">
+
+    <translate
+        android:duration="300"
+        android:fromXDelta="8%p"
+        android:toXDelta="0" />
+
+    <alpha
+        android:duration="200"
+        android:fromAlpha="0.0"
+        android:toAlpha="1.0" />
+</set>

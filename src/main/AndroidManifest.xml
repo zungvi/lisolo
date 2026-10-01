@@ -199,7 +199,7 @@
         <activity
             android:name=".ui.ConversationsActivity"
             android:launchMode="singleTask"
-            android:windowSoftInputMode="stateUnchanged" />
+            android:windowSoftInputMode="stateUnchanged|adjustResize" />
         <activity
             android:name=".ui.ScanActivity"
             android:enableOnBackInvokedCallback="false"

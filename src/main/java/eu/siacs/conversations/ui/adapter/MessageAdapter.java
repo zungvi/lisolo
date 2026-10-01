@@ -2,6 +2,7 @@ package eu.siacs.conversations.ui.adapter;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
@@ -21,7 +22,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
-import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
@@ -37,6 +37,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.widget.ImageViewCompat;
 import androidx.databinding.DataBindingUtil;
+import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.color.MaterialColors;
@@ -77,6 +78,7 @@ import eu.siacs.conversations.ui.text.FixedURLSpan;
 import eu.siacs.conversations.ui.text.QuoteSpan;
 import eu.siacs.conversations.ui.util.Attachment;
 import eu.siacs.conversations.ui.util.AvatarWorkerTask;
+import eu.siacs.conversations.ui.util.Typefaces;
 import eu.siacs.conversations.ui.util.QuoteHelper;
 import eu.siacs.conversations.ui.util.ViewUtil;
 import eu.siacs.conversations.ui.widget.ClickableMovementMethod;
@@ -99,7 +101,7 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class MessageAdapter extends ArrayAdapter<Message> {
+public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageItemViewHolder> {
 
     public static final String DATE_SEPARATOR_BODY = "DATE_SEPARATOR";
     private static final int END = 0;
@@ -108,6 +110,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
     private static final int DATE_SEPARATOR = 3;
     private static final int RTP_SESSION = 4;
     private final XmppActivity activity;
+    private final List<Message> messages;
     private final AudioPlayer audioPlayer;
     private List<String> highlightedTerm = null;
     private final DisplayMetrics metrics;
@@ -118,12 +121,27 @@ public class MessageAdapter extends ArrayAdapter<Message> {
 
     public MessageAdapter(
             final XmppActivity activity, final List<Message> messages, final boolean forceNames) {
-        super(activity, 0, messages);
         this.audioPlayer = new AudioPlayer(this);
         this.activity = activity;
-        metrics = getContext().getResources().getDisplayMetrics();
+        // The list is owned by the caller, which refills it in place; this adapter only reads it.
+        this.messages = messages;
+        metrics = activity.getResources().getDisplayMetrics();
         updatePreferences();
         this.mForceNames = forceNames;
+    }
+
+    /** Public because {@link AudioPlayer} relies on it, as it did when this was an ArrayAdapter. */
+    public Context getContext() {
+        return this.activity;
+    }
+
+    private Message getItem(final int position) {
+        return this.messages.get(position);
+    }
+
+    @Override
+    public int getItemCount() {
+        return this.messages.size();
     }
 
     public MessageAdapter(final XmppActivity activity, final List<Message> messages) {
@@ -158,11 +176,6 @@ public class MessageAdapter extends ArrayAdapter<Message> {
 
     public void setOnContactPictureLongClicked(OnContactPictureLongClicked listener) {
         this.mOnContactPictureLongClickedListener = listener;
-    }
-
-    @Override
-    public int getViewTypeCount() {
-        return 5;
     }
 
     private static int getItemViewType(final Message message, final boolean alignStart) {
@@ -370,7 +383,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         viewHolder.messageBody().setVisibility(View.VISIBLE);
         viewHolder.messageBody().setText(text);
         setTextSize(viewHolder.messageBody(), this.bubbleDesign.largeFont);
-        viewHolder.messageBody().setTypeface(null, Typeface.ITALIC);
+        Typefaces.apply(viewHolder.messageBody(), Typefaces.regular(activity), true);
         viewHolder
                 .messageBody()
                 .setTextColor(bubbleToOnSurfaceVariant(viewHolder.messageBody(), bubbleColor));
@@ -384,7 +397,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         viewHolder.downloadButton().setVisibility(View.GONE);
         viewHolder.audioPlayer().setVisibility(View.GONE);
         viewHolder.image().setVisibility(View.GONE);
-        viewHolder.messageBody().setTypeface(null, Typeface.NORMAL);
+        Typefaces.apply(viewHolder.messageBody(), Typefaces.regular(activity), false);
         viewHolder.messageBody().setVisibility(View.VISIBLE);
         setTextColor(viewHolder.messageBody(), bubbleColor);
         final Spannable span = new SpannableString(body);
@@ -486,7 +499,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         viewHolder.messageBody().setVisibility(View.VISIBLE);
         setTextColor(viewHolder.messageBody(), bubbleColor);
         setTextSize(viewHolder.messageBody(), this.bubbleDesign.largeFont);
-        viewHolder.messageBody().setTypeface(null, Typeface.NORMAL);
+        Typefaces.apply(viewHolder.messageBody(), Typefaces.regular(activity), false);
         final var rawBody = message.getBody();
         if (Strings.isNullOrEmpty(rawBody)) {
             viewHolder.messageBody().setText("");
@@ -721,7 +734,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                     privateMarker.length(),
                     Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
             viewHolder.messageBody().setText(body);
-            viewHolder.messageBody().setTypeface(null, Typeface.NORMAL);
+            Typefaces.apply(viewHolder.messageBody(), Typefaces.regular(activity), false);
             viewHolder.messageBody().setVisibility(View.VISIBLE);
         } else {
             viewHolder.messageBody().setVisibility(View.GONE);
@@ -755,86 +768,71 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
     }
 
-    private MessageItemViewHolder getViewHolder(
-            final View view, final @NonNull ViewGroup parent, final int type) {
-        if (view != null && view.getTag() instanceof MessageItemViewHolder messageItemViewHolder) {
-            return messageItemViewHolder;
-        } else {
-            final MessageItemViewHolder viewHolder =
-                    switch (type) {
-                        case RTP_SESSION ->
-                                new RtpSessionMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_rtp_session,
-                                                parent,
-                                                false));
-                        case DATE_SEPARATOR ->
-                                new DateSeperatorMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_date_bubble,
-                                                parent,
-                                                false));
-                        case STATUS ->
-                                new StatusMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_status,
-                                                parent,
-                                                false));
-                        case END ->
-                                new EndBubbleMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_end,
-                                                parent,
-                                                false));
-                        case START ->
-                                new StartBubbleMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_start,
-                                                parent,
-                                                false));
-                        default -> throw new AssertionError("Unable to create ViewHolder for type");
-                    };
-            viewHolder.itemView.setTag(viewHolder);
-            return viewHolder;
-        }
-    }
-
     @NonNull
     @Override
-    public View getView(final int position, final View view, final @NonNull ViewGroup parent) {
+    public MessageItemViewHolder onCreateViewHolder(
+            @NonNull final ViewGroup parent, final int viewType) {
+        final var inflater = LayoutInflater.from(parent.getContext());
+        return switch (viewType) {
+            case RTP_SESSION ->
+                    new RtpSessionMessageItemViewHolder(
+                            DataBindingUtil.inflate(
+                                    inflater, R.layout.item_message_rtp_session, parent, false));
+            case DATE_SEPARATOR ->
+                    new DateSeperatorMessageItemViewHolder(
+                            DataBindingUtil.inflate(
+                                    inflater, R.layout.item_message_date_bubble, parent, false));
+            case STATUS ->
+                    new StatusMessageItemViewHolder(
+                            DataBindingUtil.inflate(
+                                    inflater, R.layout.item_message_status, parent, false));
+            case END ->
+                    new EndBubbleMessageItemViewHolder(
+                            DataBindingUtil.inflate(
+                                    inflater, R.layout.item_message_end, parent, false));
+            case START ->
+                    new StartBubbleMessageItemViewHolder(
+                            DataBindingUtil.inflate(
+                                    inflater, R.layout.item_message_start, parent, false));
+            default -> throw new AssertionError("Unable to create ViewHolder for type " + viewType);
+        };
+    }
+
+    @Override
+    public void onBindViewHolder(
+            @NonNull final MessageItemViewHolder viewHolder, final int position) {
         final Message message = getItem(position);
         final int type = getItemViewType(message, bubbleDesign.alignStart);
-        final MessageItemViewHolder viewHolder = getViewHolder(view, parent, type);
 
         if (type == DATE_SEPARATOR
                 && viewHolder instanceof DateSeperatorMessageItemViewHolder messageItemViewHolder) {
-            return render(message, messageItemViewHolder);
+            render(message, messageItemViewHolder);
+            return;
         }
 
         if (type == RTP_SESSION
                 && viewHolder instanceof RtpSessionMessageItemViewHolder messageItemViewHolder) {
-            return render(message, messageItemViewHolder);
+            render(message, messageItemViewHolder);
+            return;
         }
 
         if (type == STATUS
                 && viewHolder instanceof StatusMessageItemViewHolder messageItemViewHolder) {
-            return render(message, messageItemViewHolder);
+            render(message, messageItemViewHolder);
+            return;
         }
 
         if ((type == END || type == START)
                 && viewHolder instanceof BubbleMessageItemViewHolder messageItemViewHolder) {
-            return render(position, message, messageItemViewHolder);
+            render(position, message, messageItemViewHolder);
+            return;
         }
 
-        throw new AssertionError();
+        throw new AssertionError(
+                "No ViewHolder of type " + type + " for " + viewHolder.getClass().getSimpleName());
     }
 
-    private View render(
+    private void render(
             final int position,
             final Message message,
             final BubbleMessageItemViewHolder viewHolder) {
@@ -1055,10 +1053,9 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         if (mergeIntoBottom) {
             hideRepeatedGroupStatus(viewHolder);
         }
-        return viewHolder.root();
     }
 
-    private View render(
+    private void render(
             final Message message, final DateSeperatorMessageItemViewHolder viewHolder) {
         final boolean colorfulBackground = this.bubbleDesign.colorfulChatBubbles;
         if (UIHelper.today(message.getTimeSent())) {
@@ -1074,10 +1071,9 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
         setBackgroundTint(viewHolder.binding.messageBox, BubbleColor.TRANSPARENT);
         setTextColor(viewHolder.binding.messageBody, BubbleColor.TRANSPARENT);
-        return viewHolder.binding.getRoot();
     }
 
-    private View render(final Message message, final RtpSessionMessageItemViewHolder viewHolder) {
+    private void render(final Message message, final RtpSessionMessageItemViewHolder viewHolder) {
         final boolean colorfulBackground = this.bubbleDesign.colorfulChatBubbles;
         final boolean received = message.getStatus() <= Message.STATUS_RECEIVED;
         final RtpSessionStatus rtpSessionStatus = RtpSessionStatus.of(message.getBody());
@@ -1126,10 +1122,9 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
         viewHolder.binding.indicatorReceived.setImageResource(
                 RtpSessionStatus.getDrawable(received, rtpSessionStatus.successful));
-        return viewHolder.binding.getRoot();
     }
 
-    private View render(final Message message, final StatusMessageItemViewHolder viewHolder) {
+    private void render(final Message message, final StatusMessageItemViewHolder viewHolder) {
         final var conversation = message.getConversation();
         if ("LOAD_MORE".equals(message.getBody())) {
             viewHolder.binding.statusMessage.setVisibility(View.GONE);
@@ -1163,7 +1158,6 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                 viewHolder.binding.messagePhoto.setVisibility(View.GONE);
             }
         }
-        return viewHolder.binding.getRoot();
     }
 
     private void setAvatarDistance(
@@ -1588,12 +1582,10 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
     }
 
-    private abstract static class MessageItemViewHolder /*extends RecyclerView.ViewHolder*/ {
+    public abstract static class MessageItemViewHolder extends RecyclerView.ViewHolder {
 
-        private final View itemView;
-
-        private MessageItemViewHolder(@NonNull View itemView) {
-            this.itemView = itemView;
+        private MessageItemViewHolder(@NonNull final View itemView) {
+            super(itemView);
         }
     }
 

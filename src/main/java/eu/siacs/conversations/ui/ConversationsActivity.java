@@ -366,7 +366,10 @@ public class ConversationsActivity extends XmppActivity
         ConversationMenuConfigurator.reloadFeatures(this);
         OmemoSetting.load(this);
         this.binding = DataBindingUtil.setContentView(this, R.layout.activity_conversations);
-        Activities.setStatusAndNavigationBarColors(this, binding.getRoot());
+        // The hosted fragments route their own bottom and keyboard insets, so this activity only
+        // claims the status bar inset for the app bar.
+        Activities.applyWindowChrome(this);
+        Activities.applyTopInset(binding.appBarLayout);
         setSupportActionBar(binding.toolbar);
         configureActionBar(getSupportActionBar());
         this.getSupportFragmentManager()

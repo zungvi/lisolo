@@ -53,6 +53,7 @@ import androidx.lifecycle.Lifecycle;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import com.google.android.material.transition.MaterialSharedAxis;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.common.collect.Collections2;
@@ -314,6 +315,15 @@ public class ConversationsOverviewFragment extends XmppFragment {
     }
 
     @Override
+    public void onCreate(@Nullable final Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        // The counterpart of ConversationFragment's enter/return pair: the list slides out as a
+        // chat opens and slides back in when it closes.
+        setExitTransition(new MaterialSharedAxis(MaterialSharedAxis.X, true));
+        setReenterTransition(new MaterialSharedAxis(MaterialSharedAxis.X, false));
+    }
+
+    @Override
     public View onCreateView(
             @NonNull final LayoutInflater inflater,
             ViewGroup container,
@@ -342,6 +352,10 @@ public class ConversationsOverviewFragment extends XmppFragment {
         this.binding.list.addOnScrollListener(ExtendedFabSizeChanger.of(binding.fab));
         this.touchHelper = new ItemTouchHelper(this.callback);
         this.touchHelper.attachToRecyclerView(this.binding.list);
+        // The list draws behind the navigation bar; padding keeps the final row reachable and the
+        // FAB clear of it.
+        Activities.applyBottomInset(this.binding.list);
+        Activities.applyBottomMarginInset(this.binding.fab);
         return binding.getRoot();
     }
 

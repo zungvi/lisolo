@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The composer is a pill rather than a bubble, so it reads as a control and not as a message.
+  Tinted at the use site via android:backgroundTint.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="?colorSurfaceContainer" />
+    <corners android:radius="@dimen/composer_corner_radius" />
+</shape>

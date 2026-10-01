@@ -42,7 +42,6 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
-import android.widget.AdapterView;
 import android.widget.EditText;
 import androidx.databinding.DataBindingUtil;
 import com.google.android.material.color.MaterialColors;
@@ -54,11 +53,12 @@ import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.entities.Conversational;
 import eu.siacs.conversations.entities.Message;
 import eu.siacs.conversations.services.MessageSearchTask;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import eu.siacs.conversations.ui.adapter.MessageAdapter;
+import eu.siacs.conversations.ui.widget.ContextMenuRecyclerView;
 import eu.siacs.conversations.ui.interfaces.OnSearchResultsAvailable;
 import eu.siacs.conversations.ui.util.ChangeWatcher;
 import eu.siacs.conversations.ui.util.DateSeparator;
-import eu.siacs.conversations.ui.util.ListViewUtils;
 import eu.siacs.conversations.ui.util.PendingItem;
 import eu.siacs.conversations.ui.util.ShareUtil;
 import eu.siacs.conversations.utils.FtsUtils;
@@ -75,6 +75,7 @@ public class SearchActivity extends XmppActivity
 
     private ActivitySearchBinding binding;
     private MessageAdapter messageListAdapter;
+    private LinearLayoutManager searchResultsLayoutManager;
     private final List<Message> messages = new ArrayList<>();
     private WeakReference<Message> selectedMessageReference = new WeakReference<>(null);
     private String uuid;
@@ -100,6 +101,11 @@ public class SearchActivity extends XmppActivity
         configureActionBar(getSupportActionBar());
         this.messageListAdapter = new MessageAdapter(this, this.messages, uuid == null);
         this.messageListAdapter.setOnContactPictureClicked(this);
+        // stackFromEnd mirrors the old ListView's stackFromBottom: results read oldest-first but
+        // sit against the bottom of the screen.
+        this.searchResultsLayoutManager = new LinearLayoutManager(this);
+        this.searchResultsLayoutManager.setStackFromEnd(true);
+        this.binding.searchResults.setLayoutManager(this.searchResultsLayoutManager);
         this.binding.searchResults.setAdapter(messageListAdapter);
         registerForContextMenu(this.binding.searchResults);
     }
@@ -137,8 +143,15 @@ public class SearchActivity extends XmppActivity
     public void onCreateContextMenu(
             final ContextMenu menu, final View v, ContextMenu.ContextMenuInfo menuInfo) {
         v.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_CANCEL, 0f, 0f, 0));
-        AdapterView.AdapterContextMenuInfo acmi = (AdapterView.AdapterContextMenuInfo) menuInfo;
-        final Message message = this.messages.get(acmi.position);
+        if (!(menuInfo
+                instanceof ContextMenuRecyclerView.RecyclerViewContextMenuInfo recyclerViewInfo)) {
+            return;
+        }
+        final int position = recyclerViewInfo.position;
+        if (position < 0 || position >= this.messages.size()) {
+            return;
+        }
+        final Message message = this.messages.get(position);
         this.selectedMessageReference = new WeakReference<>(message);
         getMenuInflater().inflate(R.menu.search_result_context, menu);
         final MenuItem copy = menu.findItem(R.id.copy_message);
@@ -218,6 +231,13 @@ public class SearchActivity extends XmppActivity
         }
     }
 
+    private void scrollToBottom() {
+        final int last = this.messageListAdapter.getItemCount() - 1;
+        if (last >= 0) {
+            this.binding.searchResults.scrollToPosition(last);
+        }
+    }
+
     private void changeBackground(boolean hasSearch, boolean hasResults) {
         if (hasSearch) {
             if (hasResults) {
@@ -266,7 +286,7 @@ public class SearchActivity extends XmppActivity
                     this.messages.addAll(messages);
                     messageListAdapter.notifyDataSetChanged();
                     changeBackground(true, !messages.isEmpty());
-                    ListViewUtils.scrollToBottom(this.binding.searchResults);
+                    scrollToBottom();
                 });
     }
 

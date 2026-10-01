@@ -22,6 +22,7 @@ import eu.siacs.conversations.ui.ConversationFragment;
 import eu.siacs.conversations.ui.XmppActivity;
 import eu.siacs.conversations.ui.util.Attachment;
 import eu.siacs.conversations.ui.util.AvatarWorkerTask;
+import eu.siacs.conversations.ui.util.Typefaces;
 import eu.siacs.conversations.utils.IrregularUnicodeDetector;
 import eu.siacs.conversations.utils.UIHelper;
 import eu.siacs.conversations.xmpp.Jid;
@@ -119,19 +120,22 @@ public class ConversationAdapter
             viewHolder.binding.unreadCount.setVisibility(View.GONE);
         }
 
-        if (isRead) {
-            viewHolder.binding.conversationName.setTypeface(null, Typeface.NORMAL);
-        } else {
-            viewHolder.binding.conversationName.setTypeface(null, Typeface.BOLD);
-        }
+        // Emphasis has to pick a real Inter face; see Typefaces for why setTypeface(null, style)
+        // cannot be used here.
+        final Typeface regularFace = Typefaces.regular(activity);
+        final Typeface boldFace = Typefaces.bold(activity);
+        Typefaces.apply(
+                viewHolder.binding.conversationName,
+                isRead ? Typefaces.medium(activity) : boldFace,
+                false);
 
         if (draft != null) {
             viewHolder.binding.conversationLastmsgImg.setVisibility(View.GONE);
             viewHolder.binding.conversationLastmsg.setText(draft.getMessage());
             viewHolder.binding.senderName.setText(R.string.draft);
             viewHolder.binding.senderName.setVisibility(View.VISIBLE);
-            viewHolder.binding.conversationLastmsg.setTypeface(null, Typeface.NORMAL);
-            viewHolder.binding.senderName.setTypeface(null, Typeface.ITALIC);
+            Typefaces.apply(viewHolder.binding.conversationLastmsg, regularFace, false);
+            Typefaces.apply(viewHolder.binding.senderName, regularFace, true);
         } else {
             final boolean fileAvailable = !message.isDeleted();
             final boolean showPreviewText;
@@ -160,23 +164,12 @@ public class ConversationAdapter
             }
             viewHolder.binding.conversationLastmsg.setVisibility(
                     showPreviewText ? View.VISIBLE : View.GONE);
-            if (preview.second) {
-                if (isRead) {
-                    viewHolder.binding.conversationLastmsg.setTypeface(null, Typeface.ITALIC);
-                    viewHolder.binding.senderName.setTypeface(null, Typeface.NORMAL);
-                } else {
-                    viewHolder.binding.conversationLastmsg.setTypeface(null, Typeface.BOLD_ITALIC);
-                    viewHolder.binding.senderName.setTypeface(null, Typeface.BOLD);
-                }
-            } else {
-                if (isRead) {
-                    viewHolder.binding.conversationLastmsg.setTypeface(null, Typeface.NORMAL);
-                    viewHolder.binding.senderName.setTypeface(null, Typeface.NORMAL);
-                } else {
-                    viewHolder.binding.conversationLastmsg.setTypeface(null, Typeface.BOLD);
-                    viewHolder.binding.senderName.setTypeface(null, Typeface.BOLD);
-                }
-            }
+            // preview.second marks a synthesised preview ("Image", "Location", ...), which is
+            // italicised; unread is what decides weight, for both the preview and the sender.
+            final Typeface previewFace = isRead ? regularFace : boldFace;
+            Typefaces.apply(
+                    viewHolder.binding.conversationLastmsg, previewFace, preview.second);
+            Typefaces.apply(viewHolder.binding.senderName, previewFace, false);
             if (status == Message.STATUS_RECEIVED) {
                 if (conversation.getMode() == Conversation.MODE_MULTI) {
                     viewHolder.binding.senderName.setVisibility(View.VISIBLE);
@@ -214,6 +207,8 @@ public class ConversationAdapter
             viewHolder.binding.notificationStatus.setVisibility(View.VISIBLE);
             viewHolder.binding.notificationStatus.setImageResource(
                     R.drawable.ic_phone_in_talk_24dp);
+            viewHolder.binding.notificationStatus.setContentDescription(
+                    activity.getString(R.string.ongoing_call));
         } else {
             final long muted_till =
                     conversation.getLongAttribute(Conversation.ATTRIBUTE_MUTED_TILL, 0);
@@ -221,16 +216,22 @@ public class ConversationAdapter
                 viewHolder.binding.notificationStatus.setVisibility(View.VISIBLE);
                 viewHolder.binding.notificationStatus.setImageResource(
                         R.drawable.ic_notifications_off_24dp);
+                viewHolder.binding.notificationStatus.setContentDescription(
+                        activity.getString(R.string.notifications_muted));
             } else if (muted_till >= System.currentTimeMillis()) {
                 viewHolder.binding.notificationStatus.setVisibility(View.VISIBLE);
                 viewHolder.binding.notificationStatus.setImageResource(
                         R.drawable.ic_notifications_paused_24dp);
+                viewHolder.binding.notificationStatus.setContentDescription(
+                        activity.getString(R.string.notifications_paused));
             } else if (conversation.alwaysNotify()) {
                 viewHolder.binding.notificationStatus.setVisibility(View.GONE);
             } else {
                 viewHolder.binding.notificationStatus.setVisibility(View.VISIBLE);
                 viewHolder.binding.notificationStatus.setImageResource(
                         R.drawable.ic_notifications_none_24dp);
+                viewHolder.binding.notificationStatus.setContentDescription(
+                        activity.getString(R.string.notifications));
             }
         }
 

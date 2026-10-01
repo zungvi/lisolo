@@ -5,7 +5,6 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:fitsSystemWindows="true"
         android:orientation="vertical">
 
         <com.google.android.material.appbar.AppBarLayout
@@ -20,14 +19,11 @@
 
         </com.google.android.material.appbar.AppBarLayout>
 
-        <ListView
+        <eu.siacs.conversations.ui.widget.ContextMenuRecyclerView
             android:id="@+id/search_results"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:background="@drawable/background_search"
-            android:divider="@android:color/transparent"
-            android:dividerHeight="0dp"
-            android:listSelector="@android:color/transparent"
-            android:stackFromBottom="true" />
+            android:clipToPadding="false" />
     </LinearLayout>
 </layout>

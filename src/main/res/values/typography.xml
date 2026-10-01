@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Material 3 type scale, re-pointed at Inter.
+
+  Each style inherits its parent's size and line height so the M3 vertical rhythm is preserved; only
+  the family and the tracking change. Roboto's scale carries positive tracking that reads as loose
+  at Inter's wider default sidebearings, so running text is set to zero and only the small label
+  sizes keep any tracking at all.
+
+  Family choice is deliberate:
+   - Running text (body, display, headline, titleLarge) points at @font/inter, the family, so that
+     bold spans inside a message resolve to the real Inter Bold face rather than a faux-bold slant.
+   - The 500-weight UI styles (titleMedium/Small, all labels) point straight at @font/inter_medium.
+     Asking the family for weight 500 only works from API 28 via android:textFontWeight, and the app
+     supports API 23, where it would silently fall back to 400.
+
+  Both `fontFamily` and `android:fontFamily` are set: AppCompat's text helper reads the former when
+  resolving a font resource on older API levels, the framework reads the latter.
+-->
+<resources>
+
+    <style name="TextAppearance.Zungvi.DisplayLarge" parent="TextAppearance.Material3.DisplayLarge">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="android:letterSpacing">-0.015</item>
+    </style>
+
+    <style name="TextAppearance.Zungvi.DisplayMedium" parent="TextAppearance.Material3.DisplayMedium">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="android:letterSpacing">-0.01</item>
+    </style>
+
+    <style name="TextAppearance.Zungvi.DisplaySmall" parent="TextAppearance.Material3.DisplaySmall">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="android:letterSpacing">-0.01</item>
+    </style>
+
+    <style name="TextAppearance.Zungvi.HeadlineLarge" parent="TextAppearance.Material3.HeadlineLarge">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="android:letterSpacing">-0.01</item>
+    </style>
+
+    <style name="TextAppearance.Zungvi.HeadlineMedium" parent="TextAppearance.Material3.HeadlineMedium">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="android:letterSpacing">-0.01</item>
+    </style>
+
+    <style name="TextAppearance.Zungvi.HeadlineSmall" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="android:letterSpacing">-0.005</item>
+    </style>
+
+    <!-- Toolbar titles. -->
+    <style name="TextAppearance.Zungvi.TitleLarge" parent="TextAppearance.Material3.TitleLarge">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="android:letterSpacing">-0.005</item>
+    </style>
+
+    <!-- Conversation names and other row headings. -->
+    <style name="TextAppearance.Zungvi.TitleMedium" parent="TextAppearance.Material3.TitleMedium">
+        <item name="fontFamily">@font/inter_medium</item>
+        <item name="android:fontFamily">@font/inter_medium</item>
+        <item name="android:letterSpacing">0</item>
+    </style>
+
+    <style name="TextAppearance.Zungvi.TitleSmall" parent="TextAppearance.Material3.TitleSmall">
+        <item name="fontFamily">@font/inter_medium</item>
+        <item name="android:fontFamily">@font/inter_medium</item>
+        <item name="android:letterSpacing">0</item>
+    </style>
+
+    <style name="TextAppearance.Zungvi.BodyLarge" parent="TextAppearance.Material3.BodyLarge">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="android:letterSpacing">0</item>
+    </style>
+
+    <!-- Message previews in the conversation list. -->
+    <style name="TextAppearance.Zungvi.BodyMedium" parent="TextAppearance.Material3.BodyMedium">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="android:letterSpacing">0</item>
+    </style>
+
+    <!-- Timestamps and bubble metadata. -->
+    <style name="TextAppearance.Zungvi.BodySmall" parent="TextAppearance.Material3.BodySmall">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="android:letterSpacing">0.005</item>
+    </style>
+
+    <!-- Button text. -->
+    <style name="TextAppearance.Zungvi.LabelLarge" parent="TextAppearance.Material3.LabelLarge">
+        <item name="fontFamily">@font/inter_medium</item>
+        <item name="android:fontFamily">@font/inter_medium</item>
+        <item name="android:letterSpacing">0.005</item>
+    </style>
+
+    <style name="TextAppearance.Zungvi.LabelMedium" parent="TextAppearance.Material3.LabelMedium">
+        <item name="fontFamily">@font/inter_medium</item>
+        <item name="android:fontFamily">@font/inter_medium</item>
+        <item name="android:letterSpacing">0.01</item>
+    </style>
+
+    <style name="TextAppearance.Zungvi.LabelSmall" parent="TextAppearance.Material3.LabelSmall">
+        <item name="fontFamily">@font/inter_medium</item>
+        <item name="android:fontFamily">@font/inter_medium</item>
+        <item name="android:letterSpacing">0.01</item>
+    </style>
+
+    <!-- Message body text. Sized independently of the scale so the in-app "large font" setting can
+         switch between the two without disturbing anything else. -->
+    <style name="TextAppearance.Zungvi.MessageContentNormal" parent="TextAppearance.Zungvi.BodyLarge">
+        <item name="android:textSize">16sp</item>
+        <item name="android:letterSpacing">0</item>
+    </style>
+
+    <style name="TextAppearance.Zungvi.MessageContentLarge" parent="TextAppearance.Zungvi.BodyLarge">
+        <item name="android:textSize">20sp</item>
+        <item name="android:letterSpacing">0</item>
+    </style>
+
+    <style name="TextAppearance.Snikket.MessageContentNormal" parent="TextAppearance.Zungvi.MessageContentNormal" />
+    <style name="TextAppearance.Snikket.MessageContentLarge" parent="TextAppearance.Zungvi.MessageContentLarge" />
+
+</resources>

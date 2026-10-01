@@ -7,18 +7,20 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <ListView
+        <!--
+          A RecyclerView so that arriving, edited and deleted messages animate in place instead of
+          the whole list snapping. clipToPadding is off so the bottom inset applied in code lets
+          bubbles scroll under the navigation bar rather than stopping short of it.
+        -->
+        <eu.siacs.conversations.ui.widget.ContextMenuRecyclerView
             android:id="@+id/messages_view"
-            android:layout_width="fill_parent"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_above="@+id/snackbar"
             android:layout_alignParentStart="true"
             android:layout_alignParentTop="true"
-            android:divider="@null"
-            android:dividerHeight="0dp"
-            android:listSelector="@android:color/transparent"
-            android:stackFromBottom="true"
-            android:transcriptMode="normal"
+            android:clipToPadding="false"
+            android:overScrollMode="ifContentScrolls"
             tools:listitem="@layout/item_message_end" />
 
         <com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -34,8 +36,9 @@
 
         <eu.siacs.conversations.ui.widget.UnreadCountCustomView
             android:id="@+id/unread_count_custom_view"
-            android:layout_width="18sp"
-            android:layout_height="18sp"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/unread_badge_size"
+            android:minHeight="@dimen/unread_badge_size"
             android:layout_alignTop="@+id/scroll_to_bottom_button"
             android:layout_alignEnd="@+id/scroll_to_bottom_button"
             android:layout_marginTop="16dp"
@@ -62,7 +65,7 @@
                 android:layout_alignParentStart="true"
                 android:layout_centerVertical="true"
                 android:layout_toStartOf="@+id/textSendButton"
-                android:background="@drawable/background_message_bubble"
+                android:background="@drawable/background_composer"
                 android:backgroundTint="?colorSurfaceContainer"
                 android:orientation="vertical"
                 android:paddingHorizontal="16dp"
