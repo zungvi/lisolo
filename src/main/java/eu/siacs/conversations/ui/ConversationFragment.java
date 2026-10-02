@@ -214,6 +214,10 @@ public class ConversationFragment extends XmppFragment
     protected MessageAdapter messageListAdapter;
     private LinearLayoutManager messagesLayoutManager;
 
+    /** Whether the user was reading the newest message, so the list should follow it when the
+     * viewport shrinks. Starts true because a conversation opens at the bottom. */
+    private boolean stickToBottom = true;
+
     /**
      * The row keys the adapter has actually been notified about.
      *
@@ -368,6 +372,10 @@ public class ConversationFragment extends XmppFragment
                 @Override
                 public void onScrolled(
                         @NonNull final RecyclerView view, final int dx, final int dy) {
+                    // Updated from genuine scrolls only. Reading it during the shrink that the
+                    // keyboard causes would record "not at the bottom" - the very state we are
+                    // about to correct - and the list would stay stuck there.
+                    ConversationFragment.this.stickToBottom = scrolledToBottom(view);
                     onVisibleRangeChanged();
                 }
             };
@@ -1333,8 +1341,17 @@ public class ConversationFragment extends XmppFragment
         binding.messagesView.setLayoutManager(this.messagesLayoutManager);
         binding.messagesView.addOnScrollListener(mOnScrollListener);
         binding.messagesView.addOnLayoutChangeListener(
-                (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
-                        onVisibleRangeChanged());
+                (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+                    // The list shrinks when the keyboard pushes the composer up. stackFromEnd
+                    // keeps the content bottom-aligned but does not re-scroll, so the newest
+                    // message ends up behind the composer. Follow it down if that is where the
+                    // user already was.
+                    final boolean shrank = (bottom - top) < (oldBottom - oldTop);
+                    if (shrank && this.stickToBottom) {
+                        scrollToNewest();
+                    }
+                    onVisibleRangeChanged();
+                });
         binding.messagesView.setOnTouchListener(this::onMessagesTouch);
         binding.mediaPreview.setAdapter(mediaPreviewAdapter);
         messageListAdapter = new MessageAdapter((XmppActivity) getActivity(), this.messageList);
@@ -2953,6 +2970,12 @@ public class ConversationFragment extends XmppFragment
         // re-enters this method cannot diff against the old baseline a second time.
         this.dispatchedMessageKeys = after;
         diff.dispatchUpdatesTo(this.messageListAdapter);
+        // A message arriving while the user is reading the newest one should bring it into view.
+        // stackFromEnd keeps the content bottom-aligned but does not scroll on its own, so without
+        // this the new row lands under the composer and the user has to scroll to find it.
+        if (this.stickToBottom && after.size() > before.size()) {
+            recyclerView.post(this::scrollToNewest);
+        }
     }
 
     private void setSelection(final int pos, final boolean jumpToBottom) {
