@@ -852,6 +852,14 @@
     <string name="open_with">Open with…</string>
     <string name="set_profile_picture">Profile picture</string>
     <string name="choose_account">Choose account</string>
+    <string name="all_accounts">All accounts</string>
+    <plurals name="n_accounts">
+        <item quantity="one">%d account</item>
+        <item quantity="other">%d accounts</item>
+    </plurals>
+    <string name="switch_account">Switch account</string>
+    <string name="add_account">Add account</string>
+    <string name="showing_one_account">Showing one account</string>
     <string name="restore_backup">Restore backup</string>
     <string name="restore">Restore</string>
     <string name="enter_password_to_restore">Enter your password for the account %s to restore the backup.</string>

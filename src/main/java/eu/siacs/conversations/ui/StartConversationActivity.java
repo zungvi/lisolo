@@ -63,6 +63,7 @@ import com.google.common.util.concurrent.Futures;
 import com.leinardi.android.speeddial.SpeedDialActionItem;
 import com.leinardi.android.speeddial.SpeedDialView;
 import eu.siacs.conversations.BuildConfig;
+import eu.siacs.conversations.AppSettings;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.databinding.ActivityStartConversationBinding;
@@ -1011,6 +1012,16 @@ public class StartConversationActivity extends XmppActivity
         }
         this.mActivatedAccounts.clear();
         this.mActivatedAccounts.addAll(AccountUtils.getEnabledAccounts(xmppConnectionService));
+        // The new-chat dialogs default to the first entry of this list. When the inbox is filtered
+        // to one account, starting a chat from that inbox should use it rather than whichever
+        // account happens to sort first.
+        final var selected = new AppSettings(this).getSelectedAccount();
+        if (selected.isPresent()) {
+            final var jid = selected.get().toString();
+            if (this.mActivatedAccounts.remove(jid)) {
+                this.mActivatedAccounts.add(0, jid);
+            }
+        }
         configureHomeButton();
         Intent intent = pendingViewIntent.pop();
         if (intent != null && processViewIntent(intent)) {

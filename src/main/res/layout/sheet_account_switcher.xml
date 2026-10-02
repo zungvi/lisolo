@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <!--
+      Modal bottom sheet, the Material 3 pattern for switching between a small set of identities.
+      A sheet rather than a dropdown so rows can carry an avatar, a live connection status and an
+      unread count, and so the list stays reachable one-handed on a tall phone.
+
+      The list is wrapped but height-capped: with many accounts the sheet scrolls instead of
+      growing past the screen and pushing the actions out of reach.
+    -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="24dp"
+            android:paddingTop="20dp"
+            android:paddingBottom="12dp"
+            android:text="@string/switch_account"
+            android:textAppearance="?textAppearanceTitleSmall"
+            android:textColor="?colorOnSurfaceVariant" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/account_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipToPadding="false"
+            android:maxHeight="360dp"
+            app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+
+        <com.google.android.material.divider.MaterialDivider
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/action_add_account"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?selectableItemBackground"
+            android:drawablePadding="24dp"
+            android:gravity="center_vertical"
+            android:minHeight="56dp"
+            android:paddingHorizontal="24dp"
+            android:text="@string/add_account"
+            android:textAppearance="?textAppearanceBodyLarge"
+            android:textColor="?colorOnSurface"
+            app:drawableStartCompat="@drawable/ic_person_add_24dp"
+            app:drawableTint="?colorOnSurfaceVariant" />
+
+        <TextView
+            android:id="@+id/action_manage_accounts"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?selectableItemBackground"
+            android:drawablePadding="24dp"
+            android:gravity="center_vertical"
+            android:minHeight="56dp"
+            android:paddingHorizontal="24dp"
+            android:text="@string/action_accounts"
+            android:textAppearance="?textAppearanceBodyLarge"
+            android:textColor="?colorOnSurface"
+            app:drawableStartCompat="@drawable/ic_settings_24dp"
+            app:drawableTint="?colorOnSurfaceVariant" />
+
+    </LinearLayout>
+</layout>

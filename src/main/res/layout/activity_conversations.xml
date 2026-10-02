@@ -18,7 +18,25 @@
                 android:layout_height="wrap_content"
                 android:minHeight="?attr/actionBarSize"
                 app:subtitleTextAppearance="?textAppearanceBodySmall"
-                app:subtitleTextColor="?colorOnSurfaceVariant" />
+                app:subtitleTextColor="?colorOnSurfaceVariant" >
+            <!--
+              Account switcher affordance, anchored at the end of the toolbar the way Google's apps
+              place it. Hidden by ConversationsActivity when only one account exists, so a
+              single-account install sees no extra chrome.
+            -->
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/account_switcher"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_gravity="end|center_vertical"
+                android:layout_marginEnd="8dp"
+                android:background="?selectableItemBackgroundBorderless"
+                android:contentDescription="@string/switch_account"
+                android:scaleType="centerCrop"
+                android:visibility="gone"
+                app:shapeAppearanceOverlay="@style/ShapeAppearance.Circular" />
+
+            </com.google.android.material.appbar.MaterialToolbar>
 
         </com.google.android.material.appbar.AppBarLayout>
 

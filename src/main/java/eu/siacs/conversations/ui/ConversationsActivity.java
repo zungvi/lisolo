@@ -36,6 +36,7 @@ import android.annotation.SuppressLint;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
@@ -45,6 +46,7 @@ import android.util.Log;
 import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
 import android.widget.Toast;
 import androidx.annotation.IdRes;
 import androidx.annotation.NonNull;
@@ -53,19 +55,25 @@ import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.core.widget.ImageViewCompat;
 import androidx.databinding.DataBindingUtil;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentTransaction;
+import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.common.collect.Iterables;
+import eu.siacs.conversations.AppSettings;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.crypto.OmemoSetting;
 import eu.siacs.conversations.databinding.ActivityConversationsBinding;
+import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.entities.Contact;
 import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.entities.Conversational;
 import eu.siacs.conversations.services.XmppConnectionService;
+import eu.siacs.conversations.ui.util.AvatarWorkerTask;
 import eu.siacs.conversations.ui.interfaces.OnBackendConnected;
 import eu.siacs.conversations.ui.interfaces.OnConversationArchived;
 import eu.siacs.conversations.ui.interfaces.OnConversationRead;
@@ -95,7 +103,8 @@ public class ConversationsActivity extends XmppActivity
                 XmppConnectionService.OnRosterUpdate,
                 OnUpdateBlocklist,
                 XmppConnectionService.OnShowErrorToast,
-                XmppConnectionService.OnAffiliationChanged {
+                XmppConnectionService.OnAffiliationChanged,
+                AccountSwitcherSheet.OnAccountSelectionChanged {
 
     public static final String ACTION_VIEW_CONVERSATION = "eu.siacs.conversations.action.VIEW";
     public static final String EXTRA_CONVERSATION = "conversationUuid";
@@ -143,6 +152,7 @@ public class ConversationsActivity extends XmppActivity
     protected void refreshUiReal() {
         invalidateOptionsMenu();
         invalidateActionBarTitle();
+        refreshAccountSwitcher();
         for (@IdRes int id : FRAGMENT_ID_NOTIFICATION_ORDER) {
             refreshFragment(id);
         }
@@ -370,6 +380,7 @@ public class ConversationsActivity extends XmppActivity
         // claims the status bar inset for the app bar.
         Activities.applyWindowChrome(this);
         Activities.applyTopInset(binding.appBarLayout);
+        binding.accountSwitcher.setOnClickListener(v -> showAccountSwitcher());
         setSupportActionBar(binding.toolbar);
         configureActionBar(getSupportActionBar());
         this.getSupportFragmentManager()
@@ -612,6 +623,75 @@ public class ConversationsActivity extends XmppActivity
         transaction.commitAllowingStateLoss();
     }
 
+    private void showAccountSwitcher() {
+        final var existing = getSupportFragmentManager().findFragmentByTag(AccountSwitcherSheet.TAG);
+        if (existing != null) {
+            return;
+        }
+        new AccountSwitcherSheet().show(getSupportFragmentManager(), AccountSwitcherSheet.TAG);
+    }
+
+    @Override
+    public void onAccountSelectionChanged() {
+        refreshAccountSwitcher();
+        refreshFragment(R.id.main_fragment);
+        invalidateActionBarTitle();
+    }
+
+    /**
+     * Shows the switcher only once there is something to switch between, and paints it with the
+     * avatar of whatever the inbox is currently filtered to.
+     */
+    public void refreshAccountSwitcher() {
+        if (this.binding == null) {
+            return;
+        }
+        final var switcher = this.binding.accountSwitcher;
+        final var service = this.xmppConnectionService;
+        if (service == null) {
+            switcher.setVisibility(View.GONE);
+            return;
+        }
+        final var accounts = service.getAccounts();
+        if (accounts.size() < 2) {
+            // A single-account install gains nothing from a switcher, so it gets no extra chrome.
+            switcher.setVisibility(View.GONE);
+            return;
+        }
+        switcher.setVisibility(View.VISIBLE);
+        final var selected = new AppSettings(this).getSelectedAccount();
+        final Account account =
+                selected.isPresent()
+                        ? Iterables.tryFind(
+                                        accounts,
+                                        a -> selected.get().equals(a.getJid().asBareJid()))
+                                .orNull()
+                        : null;
+        if (account == null) {
+            // Unified inbox, or a selection that no longer resolves: a neutral glyph rather than
+            // one account's avatar, which would imply the list is filtered to it.
+            switcher.setImageResource(R.drawable.ic_forum_24dp);
+            switcher.setBackgroundColor(
+                    MaterialColors.getColor(
+                            switcher, com.google.android.material.R.attr.colorSurfaceVariant));
+            ImageViewCompat.setImageTintList(
+                    switcher,
+                    ColorStateList.valueOf(
+                            MaterialColors.getColor(
+                                    switcher,
+                                    com.google.android.material.R.attr.colorOnSurfaceVariant)));
+            switcher.setContentDescription(getString(R.string.switch_account));
+        } else {
+            switcher.setBackground(null);
+            ImageViewCompat.setImageTintList(switcher, null);
+            AvatarWorkerTask.loadAvatar(account, switcher, R.dimen.avatar);
+            switcher.setContentDescription(
+                    getString(R.string.switch_account)
+                            + ", "
+                            + account.getJid().asBareJid());
+        }
+    }
+
     private void invalidateActionBarTitle() {
         final ActionBar actionBar = getSupportActionBar();
         if (actionBar == null) {
@@ -637,10 +717,22 @@ public class ConversationsActivity extends XmppActivity
             }
         } else {
             actionBar.setTitle(R.string.app_name);
-            actionBar.setSubtitle(null);
+            // While the inbox is narrowed to one account, say which one. Without this the list
+            // silently hides conversations and looks like messages have gone missing.
+            actionBar.setSubtitle(filteredAccountSubtitle());
         }
         actionBar.setDisplayHomeAsUpEnabled(false);
         ToolbarUtils.resetActionBarOnClickListeners(binding.toolbar);
+    }
+
+    /** The selected account's address, or null when showing the unified inbox. */
+    private CharSequence filteredAccountSubtitle() {
+        final var service = this.xmppConnectionService;
+        if (service == null || service.getAccounts().size() < 2) {
+            return null;
+        }
+        final var selected = new AppSettings(this).getSelectedAccount();
+        return selected.map(jid -> (CharSequence) jid.toString()).orElse(null);
     }
 
     private void setTitleAndSubtitle(
