@@ -85,18 +85,24 @@ where it sits. What follows is features, not polish; each is real work.
       below two, so it has never rendered.
 
 ### 9.2 Missing features
-- [ ] **Typing indicators.** The strings (`contact_is_typing`,
-      `contacts_are_typing`) and the XMPP chat-state plumbing
-      (`ChatStateManager`, `Composing`) both exist, but nothing renders it in
-      the chat. Signal and WhatsApp show it constantly; its absence is felt.
+> Corrected after a second pass: the first audit here used case-sensitive
+> patterns and under-reported what already exists. Typing indicators and audio
+> scrubbing were both wrongly listed as missing.
+
+- [x] ~~Typing indicators.~~ **Already implemented.** `updateStatusMessages()`
+      renders "X is typing…" as a status row for 1:1 chats from
+      `ChatStateManager.getIncoming()`, and for group chats from the per-user
+      chat state, including the plural "X and Y are typing…" form and the
+      "stopped typing" variants.
 - [ ] **Jump to quoted message.** Tapping a reply quote does nothing. Both apps
       scroll to the original and flash it.
 - [ ] **Multi-select.** No action-mode selection. Signal lets you select several
       messages to forward or delete; here it is one-at-a-time via the context
       menu.
 - [ ] **Link previews.** No Open Graph fetching. Every modern messenger has them.
-- [ ] **Voice note waveforms.** Audio plays, but as a plain player with no
-      waveform and no scrubbing.
+- [ ] **Voice note waveforms.** Scrubbing *does* work — `item_message_content`
+      has a `SeekBar` wired to `AudioPlayer.seekTo()`. What is missing is only
+      the waveform rendering that Signal and WhatsApp draw behind it.
 
 ### 9.3 Known trade-off, deliberately taken
 - [ ] **`areContentsTheSame` always returns `false`**, so every visible row
@@ -107,9 +113,13 @@ where it sits. What follows is features, not polish; each is real work.
 
 ### 9.4 Suggested order
 1. Long-press verification — a bug check, and the highest risk
-2. Typing indicators — plumbing already exists, so the cheapest real win
-3. Jump to quoted message
-4. Multi-select
+2. Jump to quoted message — self-contained, no new infrastructure
+3. Multi-select — the largest genuine gap in day-to-day use
+4. Voice note waveforms — presentation only; playback and seeking already work
+5. Link previews — weigh first: fetching Open Graph data means the client
+   requests arbitrary third-party URLs, which leaks IP and metadata. That is a
+   product decision for a privacy-focused messenger, not just an implementation
+   task. Signal does it deliberately and carefully.
 
 ### 9.5 Confidence note
 The scroll bug in this area was diagnosed wrong three times, and two of those
