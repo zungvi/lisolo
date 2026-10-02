@@ -9,8 +9,10 @@ import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsAnimationCompat;
 import androidx.core.view.WindowInsetsCompat;
 import com.google.android.material.appbar.AppBarLayout;
+import java.util.List;
 import com.google.android.material.elevation.SurfaceColors;
 
 /**
@@ -142,22 +144,46 @@ public final class Activities {
     /**
      * Pads {@code view} by whichever is taller, the navigation bar or the keyboard, so a bottom bar
      * rides up with the IME instead of being covered by it.
+     *
+     * <p>The same padding is also recomputed on every frame of the keyboard animation. Without the
+     * animation callback the platform only reports IME insets once the animation has finished, so
+     * the composer snaps into place after the keyboard has already finished opening.
      */
     public static void applyBottomInsetWithIme(final View view) {
         final int paddingBottom = view.getPaddingBottom();
         ViewCompat.setOnApplyWindowInsetsListener(
                 view,
                 (v, windowInsets) -> {
-                    final var bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
-                    final var ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
-                    v.setPadding(
-                            v.getPaddingLeft(),
-                            v.getPaddingTop(),
-                            v.getPaddingRight(),
-                            paddingBottom + Math.max(bars.bottom, ime.bottom));
+                    applyImePadding(v, windowInsets, paddingBottom);
                     return windowInsets;
                 });
+        ViewCompat.setWindowInsetsAnimationCallback(
+                view,
+                new WindowInsetsAnimationCompat.Callback(
+                        WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+                    @NonNull
+                    @Override
+                    public WindowInsetsCompat onProgress(
+                            @NonNull final WindowInsetsCompat windowInsets,
+                            @NonNull final List<WindowInsetsAnimationCompat> running) {
+                        applyImePadding(view, windowInsets, paddingBottom);
+                        return windowInsets;
+                    }
+                });
         requestInsets(view);
+    }
+
+    private static void applyImePadding(
+            final View view, final WindowInsetsCompat windowInsets, final int paddingBottom) {
+        final var bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+        final var ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
+        // Whichever is taller, never both: while the keyboard is up it already covers the
+        // navigation bar, so adding the two would leave a gap the height of the bar.
+        view.setPadding(
+                view.getPaddingLeft(),
+                view.getPaddingTop(),
+                view.getPaddingRight(),
+                paddingBottom + Math.max(bars.bottom, ime.bottom));
     }
 
     /** Pads {@code view} by the navigation bar height only. */
@@ -199,10 +225,31 @@ public final class Activities {
         requestInsets(view);
     }
 
+    /**
+     * Asks for an insets pass, deferring until the view is attached when it is not yet.
+     *
+     * <p>Views configured from {@code onCreateView} are never attached at that point, and the
+     * window has usually already dispatched its insets by then. Simply skipping the request left
+     * any fragment added after that first dispatch — the chat screen, which is created when a
+     * conversation is tapped — with a listener that never ran, so its composer sat under the
+     * navigation bar and behind the keyboard.
+     */
     private static void requestInsets(final View view) {
         if (view.isAttachedToWindow()) {
             ViewCompat.requestApplyInsets(view);
+            return;
         }
+        view.addOnAttachStateChangeListener(
+                new View.OnAttachStateChangeListener() {
+                    @Override
+                    public void onViewAttachedToWindow(@NonNull final View v) {
+                        v.removeOnAttachStateChangeListener(this);
+                        ViewCompat.requestApplyInsets(v);
+                    }
+
+                    @Override
+                    public void onViewDetachedFromWindow(@NonNull final View v) {}
+                });
     }
 
     private static AppBarLayout findAppBarLayout(final View view) {
