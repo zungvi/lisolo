@@ -213,6 +213,18 @@ public class ConversationFragment extends XmppFragment
     public Uri mPendingEditorContent = null;
     protected MessageAdapter messageListAdapter;
     private LinearLayoutManager messagesLayoutManager;
+
+    /**
+     * The row keys the adapter has actually been notified about.
+     *
+     * <p>This has to be a field rather than a value captured at each call site. A dispatch made
+     * during a layout pass has to be retried later, and by then messageList may have been refilled
+     * again; diffing against a baseline captured before the retry told the adapter about changes it
+     * had already been told about, leaving RecyclerView's item count out of step with the list. The
+     * visible symptom was a sent message not appearing until the chat was closed and reopened,
+     * which rebuilt the adapter from scratch.
+     */
+    private List<String> dispatchedMessageKeys = Collections.emptyList();
     private String lastMessageUuid = null;
     private Conversation conversation;
     private FragmentConversationBinding binding;
@@ -1329,6 +1341,10 @@ public class ConversationFragment extends XmppFragment
         messageListAdapter.setOnContactPictureClicked(this);
         messageListAdapter.setOnContactPictureLongClicked(this);
         binding.messagesView.setAdapter(messageListAdapter);
+        // A fresh adapter starts out believing exactly what messageList holds right now, so the
+        // baseline has to agree. Without this a view recreated over a non-empty list - after a
+        // rotation, say - would diff against keys from the previous adapter.
+        this.dispatchedMessageKeys = snapshotMessageKeys();
         final var itemAnimator = new DefaultItemAnimator();
         // Surviving rows are always rebound (see dispatchMessageListDiff), so a change animation
         // would cross-fade a bubble on every delivery receipt and reaction. Only real inserts,
@@ -2870,14 +2886,13 @@ public class ConversationFragment extends XmppFragment
 
     /** Refills messageList in place and reports the difference as per-row notifications. */
     private void refillMessageList(final Runnable refill) {
-        final var before = snapshotMessageKeys();
         refill.run();
         try {
             updateStatusMessages();
         } catch (final IllegalStateException e) {
             Log.d(Config.LOGTAG, "could not update status messages");
         }
-        dispatchMessageListDiff(before);
+        dispatchMessageListDiff();
     }
 
     /**
@@ -2891,21 +2906,22 @@ public class ConversationFragment extends XmppFragment
      * animations are switched off on the item animator, and RecyclerView only rebinds rows that are
      * actually on screen.
      */
-    private void dispatchMessageListDiff(final List<String> before) {
+    private void dispatchMessageListDiff() {
         if (this.messageListAdapter == null || this.binding == null) {
             return;
         }
         final var recyclerView = this.binding.messagesView;
         // RecyclerView rejects notifyItem* raised from inside a measure, layout or scroll pass, and
-        // both callers can be reached from exactly there: onVisibleRangeChanged runs from a layout
-        // change listener and from onScrolled, and the loadMoreMessages callback hops back through
-        // Activity#runOnUiThread, which executes inline when it is already on the main thread. Run
-        // after the pass finishes instead. `before` is already captured, and `after` is read when
-        // this actually executes, so the diff still describes the real transition.
+        // this can be reached from exactly there: onVisibleRangeChanged runs from a layout change
+        // listener and from onScrolled, and the loadMoreMessages callback hops back through
+        // Activity#runOnUiThread, which executes inline when already on the main thread. Retry
+        // after the pass instead. Nothing is captured, so the retry diffs against whatever the
+        // adapter believes at the moment it actually runs.
         if (recyclerView.isComputingLayout()) {
-            recyclerView.post(() -> dispatchMessageListDiff(before));
+            recyclerView.post(this::dispatchMessageListDiff);
             return;
         }
+        final var before = this.dispatchedMessageKeys;
         final var after = snapshotMessageKeys();
         final var diff =
                 DiffUtil.calculateDiff(
@@ -2933,6 +2949,9 @@ public class ConversationFragment extends XmppFragment
                             }
                         },
                         false);
+        // Record what the adapter has been told before dispatching, so a notification that
+        // re-enters this method cannot diff against the old baseline a second time.
+        this.dispatchedMessageKeys = after;
         diff.dispatchUpdatesTo(this.messageListAdapter);
     }
 
@@ -3256,7 +3275,6 @@ public class ConversationFragment extends XmppFragment
     private void refresh(boolean notifyConversationRead) {
         synchronized (this.messageList) {
             if (this.conversation != null) {
-                final var before = snapshotMessageKeys();
                 conversation.populateWithMessages(this.messageList);
                 updateSnackBar(conversation);
                 updateStatusMessages();
@@ -3265,7 +3283,7 @@ public class ConversationFragment extends XmppFragment
                     binding.unreadCountCustomView.setUnreadCount(
                             conversation.getReceivedMessagesCountSinceUuid(lastMessageUuid));
                 }
-                dispatchMessageListDiff(before);
+                dispatchMessageListDiff();
                 updateChatMsgHint();
                 if (notifyConversationRead) {
                     binding.messagesView.post(this::fireReadEvent);

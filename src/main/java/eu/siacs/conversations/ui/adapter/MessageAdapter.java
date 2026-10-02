@@ -1236,6 +1236,11 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
                     bottomStart,
                     bottomStart
                 });
+        // The layouts declare android:backgroundTint="?colorSurface" on message_box. That tint
+        // belongs to the View, not to the drawable, and View#setBackground re-applies it to
+        // whatever is handed over - repainting every bubble in the chat background colour and
+        // making it invisible. Clear it so the computed colour survives.
+        viewHolder.messageBox().setBackgroundTintList(null);
         viewHolder.messageBox().setBackground(background);
     }
 
