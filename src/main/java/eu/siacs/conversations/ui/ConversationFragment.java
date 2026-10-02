@@ -226,6 +226,13 @@ public class ConversationFragment extends XmppFragment
      * which rebuilt the adapter from scratch.
      */
     private List<String> dispatchedMessageKeys = Collections.emptyList();
+
+    /**
+     * Whether the list was showing the newest message when older history was requested, which
+     * decides whether the viewport is restored to the bottom or re-anchored on the row the user
+     * was reading. Sampled at request time because the load completes asynchronously.
+     */
+    private boolean loadMoreStartedAtBottom = true;
     private String lastMessageUuid = null;
     private Conversation conversation;
     private FragmentConversationBinding binding;
@@ -325,12 +332,8 @@ public class ConversationFragment extends XmppFragment
     }
 
     private void onMoreMessagesLoadedImpl(final Conversation conversation) {
-        // Sampled before the refill. Someone sitting at the newest message must stay there: the
-        // re-anchoring below is for keeping your place while reading history, and applying it at
-        // the bottom drags the viewport up to show an old message at the top instead. Opening a
-        // chat hits this, because the first layout is enough to put the top of the list in view
-        // and ask for more history.
-        final boolean wasAtBottom = scrolledToBottom();
+        // Captured when the load was requested; see maybeLoadMoreMessages.
+        final boolean wasAtBottom = this.loadMoreStartedAtBottom;
         final int oldPosition = Math.max(firstVisiblePosition(), 0);
         Message message = null;
         int childPos;
@@ -380,7 +383,8 @@ public class ConversationFragment extends XmppFragment
                 @Override
                 public void onScrolled(
                         @NonNull final RecyclerView view, final int dx, final int dy) {
-                    onVisibleRangeChanged();
+                    toggleScrollDownButton();
+                    maybeLoadMoreMessages();
                 }
             };
     private final EditMessage.OnCommitContentListener mEditorContentListener =
@@ -803,8 +807,16 @@ public class ConversationFragment extends XmppFragment
      * onScrolled only fires for real scrolls, so without the layout hook a conversation that opens
      * already showing its oldest loaded message would never ask for more.
      */
-    private void onVisibleRangeChanged() {
-        toggleScrollDownButton();
+    /**
+     * Fetches older history once the top of the loaded range comes into view.
+     *
+     * <p>Only called for genuine scrolls. It used to run on every layout as well, which meant
+     * opening a chat, sending a message or raising the keyboard all requested history, and the
+     * re-anchor that follows a load then dragged the viewport up into old messages. A list too
+     * short to scroll cannot reach this, which is what the "load more messages" button at the top
+     * of such a conversation is for.
+     */
+    private void maybeLoadMoreMessages() {
         final int firstVisibleItem = firstVisiblePosition();
         synchronized (this.messageList) {
             if (firstVisibleItem >= 0
@@ -819,6 +831,11 @@ public class ConversationFragment extends XmppFragment
                 } else {
                     timestamp = messageList.get(0).getTimeSent();
                 }
+                // Recorded now, not when the load returns. By then the picture has usually
+                // changed - a just-sent message puts the list off the bottom for a moment, and
+                // the keyboard opening triggers this very call - so sampling late reported "not
+                // at the bottom" and the viewport was dragged up into old history.
+                this.loadMoreStartedAtBottom = scrolledToBottom();
                 requireXmppActivity()
                         .xmppConnectionService
                         .loadMoreMessages(conversation, timestamp, onMoreMessagesLoaded);
@@ -1351,7 +1368,7 @@ public class ConversationFragment extends XmppFragment
         // animation.
         binding.messagesView.addOnLayoutChangeListener(
                 (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
-                        onVisibleRangeChanged());
+                        toggleScrollDownButton());
         binding.messagesView.setOnTouchListener(this::onMessagesTouch);
         binding.mediaPreview.setAdapter(mediaPreviewAdapter);
         messageListAdapter = new MessageAdapter((XmppActivity) getActivity(), this.messageList);
@@ -2929,8 +2946,8 @@ public class ConversationFragment extends XmppFragment
         }
         final var recyclerView = this.binding.messagesView;
         // RecyclerView rejects notifyItem* raised from inside a measure, layout or scroll pass, and
-        // this can be reached from exactly there: onVisibleRangeChanged runs from a layout change
-        // listener and from onScrolled, and the loadMoreMessages callback hops back through
+        // this can be reached from exactly there: the layout change listener and onScrolled both
+        // run inside one, and the loadMoreMessages callback hops back through
         // Activity#runOnUiThread, which executes inline when already on the main thread. Retry
         // after the pass instead. Nothing is captured, so the retry diffs against whatever the
         // adapter believes at the moment it actually runs.
