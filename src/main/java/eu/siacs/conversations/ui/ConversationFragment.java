@@ -233,6 +233,9 @@ public class ConversationFragment extends XmppFragment
      * was reading. Sampled at request time because the load completes asynchronously.
      */
     private boolean loadMoreStartedAtBottom = true;
+
+    /** How long a row stays recoloured after jumping to it from a reply. */
+    private static final long MESSAGE_FLASH_DURATION_MS = 1200L;
     private String lastMessageUuid = null;
     private Conversation conversation;
     private FragmentConversationBinding binding;
@@ -1374,6 +1377,7 @@ public class ConversationFragment extends XmppFragment
         messageListAdapter = new MessageAdapter((XmppActivity) getActivity(), this.messageList);
         messageListAdapter.setOnContactPictureClicked(this);
         messageListAdapter.setOnContactPictureLongClicked(this);
+        messageListAdapter.setOnReplyPreviewClicked(this::jumpToQuotedMessage);
         binding.messagesView.setAdapter(messageListAdapter);
         // A fresh adapter starts out believing exactly what messageList holds right now, so the
         // baseline has to agree. Without this a view recreated over a non-empty list - after a
@@ -3023,6 +3027,87 @@ public class ConversationFragment extends XmppFragment
         } else {
             layoutManager.scrollToPositionWithOffset(pos, 0);
         }
+    }
+
+    /**
+     * Scrolls to the message a reply is quoting and flashes it.
+     *
+     * <p>A reply stores the wire-format id of its target, which is the server id in a group chat
+     * and the remote id (or uuid) in a one-to-one chat, so the lookup compares against each
+     * candidate's own {@code getReplyIdWireFormat()} rather than against its uuid.
+     */
+    private void jumpToQuotedMessage(final Message reply) {
+        final String replyId = reply.getReplyId();
+        if (Strings.isNullOrEmpty(replyId) || this.binding == null) {
+            return;
+        }
+        final Message target;
+        final int position;
+        synchronized (this.messageList) {
+            int found = -1;
+            for (int i = this.messageList.size() - 1; i >= 0; --i) {
+                if (replyId.equals(this.messageList.get(i).getReplyIdWireFormat())) {
+                    found = i;
+                    break;
+                }
+            }
+            position = found;
+            target = found < 0 ? null : this.messageList.get(found);
+        }
+        if (target == null) {
+            // Older history is paged in, so the quoted message may simply not be loaded. Saying so
+            // is better than a tap that silently does nothing.
+            Toast.makeText(
+                            requireContext(),
+                            R.string.original_message_not_loaded,
+                            Toast.LENGTH_SHORT)
+                    .show();
+            return;
+        }
+        // The layout manager has stackFromEnd set, and in that mode the offset passed to
+        // scrollToPositionWithOffset is measured from the *end* of the list, not the start. Asking
+        // for a third of the viewport therefore parks the row a third up from the bottom, which
+        // leaves it on screen with the surrounding conversation visible above it.
+        scrollToPositionWithOffset(position, this.binding.messagesView.getHeight() / 3);
+        flashMessage(target);
+    }
+
+    /** Briefly recolours a row so the eye can find it after a jump. */
+    private void flashMessage(final Message message) {
+        final var adapter = this.messageListAdapter;
+        if (adapter == null || message.getUuid() == null) {
+            return;
+        }
+        final String uuid = message.getUuid();
+        adapter.setHighlightedMessage(uuid);
+        notifyMessageChanged(uuid);
+        this.binding.messagesView.postDelayed(
+                () -> {
+                    final var current = this.messageListAdapter;
+                    if (current == null) {
+                        return;
+                    }
+                    current.setHighlightedMessage(null);
+                    notifyMessageChanged(uuid);
+                },
+                MESSAGE_FLASH_DURATION_MS);
+    }
+
+    private void notifyMessageChanged(final String uuid) {
+        final var adapter = this.messageListAdapter;
+        final var recyclerView = this.binding == null ? null : this.binding.messagesView;
+        if (adapter == null || recyclerView == null) {
+            return;
+        }
+        final int position = adapter.positionOf(uuid);
+        if (position < 0) {
+            return;
+        }
+        if (recyclerView.isComputingLayout()) {
+            recyclerView.post(() -> notifyMessageChanged(uuid));
+            return;
+        }
+        adapter.notifyItemChanged(position);
     }
 
     private void scrollToNewest() {

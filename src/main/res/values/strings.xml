@@ -853,6 +853,7 @@
     <string name="set_profile_picture">Profile picture</string>
     <string name="choose_account">Choose account</string>
     <string name="all_accounts">All accounts</string>
+    <string name="original_message_not_loaded">Original message is not loaded yet. Scroll up to load more.</string>
     <plurals name="n_accounts">
         <item quantity="one">%d account</item>
         <item quantity="other">%d accounts</item>

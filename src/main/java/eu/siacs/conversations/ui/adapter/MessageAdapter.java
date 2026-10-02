@@ -115,6 +115,13 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
     private List<String> highlightedTerm = null;
     private final DisplayMetrics metrics;
     private OnContactPictureClicked mOnContactPictureClickedListener;
+    private OnReplyPreviewClicked mOnReplyPreviewClickedListener;
+
+    /**
+     * The message currently flashed after jumping to it from a reply, or null. Held as a uuid
+     * rather than a Message so a row rebuilt from the database still matches.
+     */
+    private String highlightedMessageUuid;
     private OnContactPictureLongClicked mOnContactPictureLongClickedListener;
     private BubbleDesign bubbleDesign = new BubbleDesign(false, false, false, true, true);
     private final boolean mForceNames;
@@ -176,6 +183,27 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
 
     public Activity getActivity() {
         return activity;
+    }
+
+    public void setOnReplyPreviewClicked(final OnReplyPreviewClicked listener) {
+        this.mOnReplyPreviewClickedListener = listener;
+    }
+
+    /** Pass null to clear. The caller is responsible for rebinding the affected rows. */
+    public void setHighlightedMessage(final String uuid) {
+        this.highlightedMessageUuid = uuid;
+    }
+
+    public int positionOf(final String uuid) {
+        if (uuid == null) {
+            return -1;
+        }
+        for (int i = 0; i < this.messages.size(); ++i) {
+            if (uuid.equals(this.messages.get(i).getUuid())) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     public void setOnContactPictureLongClicked(OnContactPictureLongClicked listener) {
@@ -848,16 +876,22 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
 
         final boolean colorfulBackground = this.bubbleDesign.colorfulChatBubbles;
         final boolean received = message.getStatus() == Message.STATUS_RECEIVED;
-        final BubbleColor bubbleColor;
+        final BubbleColor baseColor;
         if (received) {
             if (isInValidSession) {
-                bubbleColor = colorfulBackground ? BubbleColor.SURFACE_HIGH : BubbleColor.PRIMARY;
+                baseColor = colorfulBackground ? BubbleColor.SURFACE_HIGH : BubbleColor.PRIMARY;
             } else {
-                bubbleColor = BubbleColor.WARNING;
+                baseColor = BubbleColor.WARNING;
             }
         } else {
-            bubbleColor = colorfulBackground ? BubbleColor.PRIMARY : BubbleColor.SURFACE_HIGH;
+            baseColor = colorfulBackground ? BubbleColor.PRIMARY : BubbleColor.SURFACE_HIGH;
         }
+        // A row flashed after jumping to it from a reply borrows the tertiary container colour.
+        // Overriding here rather than repainting the background afterwards keeps the text, icon
+        // and quote-span colours consistent, because all of them are derived from this value.
+        final boolean highlighted =
+                message.getUuid() != null && message.getUuid().equals(this.highlightedMessageUuid);
+        final BubbleColor bubbleColor = highlighted ? BubbleColor.TERTIARY : baseColor;
 
         final var mergeIntoTop = mergeIntoTop(position, message);
         final var mergeIntoBottom = mergeIntoBottom(position, message);
@@ -1365,13 +1399,55 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
 
     private void displayReplyPreview(
             final BubbleMessageItemViewHolder viewHolder, final Message message) {
-        if (message.isReply() && !Strings.isNullOrEmpty(message.getReplyPreview())) {
+        final var quoted = findQuotedMessage(message);
+        final String previewText =
+                quoted != null && !Strings.isNullOrEmpty(quoted.getBody())
+                        ? quoted.getBody().replaceAll("(?m)^> ?", "").replaceAll("\\s+", " ").trim()
+                        : message.getReplyPreview();
+        if (message.isReply() && !Strings.isNullOrEmpty(previewText)) {
             viewHolder.replyPreview().setVisibility(View.VISIBLE);
             viewHolder.replyPreviewSender().setText(getReplySender(message));
-            viewHolder.replyPreviewBody().setText(message.getReplyPreview());
+            viewHolder.replyPreviewBody().setText(previewText);
+            viewHolder.replyPreview().setClickable(true);
+            viewHolder.replyPreview().setOnClickListener(
+                    v -> {
+                        final var listener = MessageAdapter.this.mOnReplyPreviewClickedListener;
+                        if (listener != null) {
+                            listener.onReplyPreviewClicked(message);
+                        }
+                    });
         } else {
             viewHolder.replyPreview().setVisibility(View.GONE);
+            // Cleared explicitly: this row may be recycled into a message that is not a reply,
+            // where a live listener would make dead space tappable.
+            viewHolder.replyPreview().setOnClickListener(null);
+            viewHolder.replyPreview().setClickable(false);
         }
+    }
+
+    /**
+     * The message a reply is quoting, or null when it is not in the loaded range.
+     *
+     * <p>Preferred over the stored {@code replyPreview} for display. That field is only reliable
+     * for replies this device sent; for incoming ones MessageParser derives it from the incoming
+     * message's own body after stripping "&gt;" fallback markers, so when the sender omits those
+     * the "quote" ends up being a copy of the reply itself.
+     */
+    private Message findQuotedMessage(final Message reply) {
+        if (!reply.isReply()) {
+            return null;
+        }
+        final String replyId = reply.getReplyId();
+        if (Strings.isNullOrEmpty(replyId)) {
+            return null;
+        }
+        for (int i = this.messages.size() - 1; i >= 0; --i) {
+            final var candidate = this.messages.get(i);
+            if (replyId.equals(candidate.getReplyIdWireFormat())) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private String getReplySender(final Message message) {
@@ -1455,6 +1531,11 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
 
     public void setHighlightedTerm(List<String> terms) {
         this.highlightedTerm = terms == null ? null : StylingHelper.filterHighlightedWords(terms);
+    }
+
+    /** Raised when the quoted block inside a reply bubble is tapped. */
+    public interface OnReplyPreviewClicked {
+        void onReplyPreviewClicked(Message reply);
     }
 
     public interface OnContactPictureClicked {
