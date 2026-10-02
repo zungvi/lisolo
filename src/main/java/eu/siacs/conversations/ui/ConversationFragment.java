@@ -214,9 +214,6 @@ public class ConversationFragment extends XmppFragment
     protected MessageAdapter messageListAdapter;
     private LinearLayoutManager messagesLayoutManager;
 
-    /** Whether the user was reading the newest message, so the list should follow it when the
-     * viewport shrinks. Starts true because a conversation opens at the bottom. */
-    private boolean stickToBottom = true;
 
     /**
      * The row keys the adapter has actually been notified about.
@@ -372,10 +369,6 @@ public class ConversationFragment extends XmppFragment
                 @Override
                 public void onScrolled(
                         @NonNull final RecyclerView view, final int dx, final int dy) {
-                    // Updated from genuine scrolls only. Reading it during the shrink that the
-                    // keyboard causes would record "not at the bottom" - the very state we are
-                    // about to correct - and the list would stay stuck there.
-                    ConversationFragment.this.stickToBottom = scrolledToBottom(view);
                     onVisibleRangeChanged();
                 }
             };
@@ -1340,18 +1333,14 @@ public class ConversationFragment extends XmppFragment
         this.messagesLayoutManager.setStackFromEnd(true);
         binding.messagesView.setLayoutManager(this.messagesLayoutManager);
         binding.messagesView.addOnScrollListener(mOnScrollListener);
+        // Deliberately does not scroll. RecyclerView preserves its anchor across a size change,
+        // so a bottom-anchored list stays at the bottom when the keyboard opens and a list the
+        // user has scrolled back through stays where they left it. Scrolling here instead fought
+        // the user and lurched, because the listener fires on every frame of the keyboard
+        // animation.
         binding.messagesView.addOnLayoutChangeListener(
-                (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-                    // The list shrinks when the keyboard pushes the composer up. stackFromEnd
-                    // keeps the content bottom-aligned but does not re-scroll, so the newest
-                    // message ends up behind the composer. Follow it down if that is where the
-                    // user already was.
-                    final boolean shrank = (bottom - top) < (oldBottom - oldTop);
-                    if (shrank && this.stickToBottom) {
-                        scrollToNewest();
-                    }
-                    onVisibleRangeChanged();
-                });
+                (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
+                        onVisibleRangeChanged());
         binding.messagesView.setOnTouchListener(this::onMessagesTouch);
         binding.mediaPreview.setAdapter(mediaPreviewAdapter);
         messageListAdapter = new MessageAdapter((XmppActivity) getActivity(), this.messageList);
@@ -2938,6 +2927,9 @@ public class ConversationFragment extends XmppFragment
             recyclerView.post(this::dispatchMessageListDiff);
             return;
         }
+        // Sampled before the dispatch: afterwards the new row itself means the list no longer
+        // reports as being at the bottom, so the answer would always be no.
+        final boolean wasAtBottom = scrolledToBottom(recyclerView);
         final var before = this.dispatchedMessageKeys;
         final var after = snapshotMessageKeys();
         final var diff =
@@ -2970,10 +2962,10 @@ public class ConversationFragment extends XmppFragment
         // re-enters this method cannot diff against the old baseline a second time.
         this.dispatchedMessageKeys = after;
         diff.dispatchUpdatesTo(this.messageListAdapter);
-        // A message arriving while the user is reading the newest one should bring it into view.
-        // stackFromEnd keeps the content bottom-aligned but does not scroll on its own, so without
-        // this the new row lands under the composer and the user has to scroll to find it.
-        if (this.stickToBottom && after.size() > before.size()) {
+        // The one place scrolling is appropriate: a message arrived while the user was already
+        // reading the newest one. Anyone who has scrolled back through history is left alone - the
+        // scroll-to-bottom button and its unread count are how they come back.
+        if (wasAtBottom && after.size() > before.size()) {
             recyclerView.post(this::scrollToNewest);
         }
     }
