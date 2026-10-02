@@ -121,13 +121,17 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
 
     public MessageAdapter(
             final XmppActivity activity, final List<Message> messages, final boolean forceNames) {
-        this.audioPlayer = new AudioPlayer(this);
+        // Order matters. AudioPlayer's constructor calls back into getContext(), which now reads
+        // this.activity; while this was an ArrayAdapter the context had already been handed to
+        // super(activity, 0, messages), so constructing the player first was safe. It no longer is,
+        // and doing it first left getContext() returning null.
         this.activity = activity;
         // The list is owned by the caller, which refills it in place; this adapter only reads it.
         this.messages = messages;
-        metrics = activity.getResources().getDisplayMetrics();
-        updatePreferences();
         this.mForceNames = forceNames;
+        this.metrics = activity.getResources().getDisplayMetrics();
+        this.audioPlayer = new AudioPlayer(this);
+        updatePreferences();
     }
 
     /** Public because {@link AudioPlayer} relies on it, as it did when this was an ArrayAdapter. */
