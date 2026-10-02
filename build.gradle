@@ -122,7 +122,7 @@ android {
         archivesBaseName += "-$versionName"
         applicationId "com.zungvi.messenger"
         resValue "string", "applicationId", applicationId
-        def appName = "Zungvi Messenger"
+        def appName = "Lisolo"
         resValue "string", "app_name", appName
         buildConfigField "String", "APP_NAME", "\"$appName\""
     }

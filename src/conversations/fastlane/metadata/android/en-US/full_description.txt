@@ -1,8 +1,8 @@
-Zungvi Messenger is a privacy-friendly messaging app for staying connected with friends, family, teams, and communities without surrendering your data to large corporations.
+Lisolo is a privacy-friendly messaging app for staying connected with friends, family, teams, and communities without surrendering your data to large corporations.
 
-Use Zungvi Messenger with your Zungvi account or another compatible XMPP account.
+Use Lisolo with your Lisolo account or another compatible XMPP account.
 
-Zungvi Messenger supports secure chat, group conversations, media sharing, and modern XMPP features while keeping the app simple to use.
+Lisolo supports secure chat, group conversations, media sharing, and modern XMPP features while keeping the app simple to use.
 
 The app is free and open-source software.
 
