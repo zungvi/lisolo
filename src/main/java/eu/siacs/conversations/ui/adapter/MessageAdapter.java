@@ -1267,7 +1267,10 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
     }
 
     private boolean mergeIntoTop(final int position, final Message message) {
-        if (position < 0) {
+        // Guards position - 1, which is what is actually read. The previous `position < 0` check
+        // let position 0 through into getItem(-1); nothing hit it only because the list's first row
+        // is normally a date separator or the load-more notice, which never reach this path.
+        if (position <= 0) {
             return false;
         }
         final var top = getItem(position - 1);

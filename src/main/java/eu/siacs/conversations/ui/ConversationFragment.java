@@ -2892,7 +2892,18 @@ public class ConversationFragment extends XmppFragment
      * actually on screen.
      */
     private void dispatchMessageListDiff(final List<String> before) {
-        if (this.messageListAdapter == null) {
+        if (this.messageListAdapter == null || this.binding == null) {
+            return;
+        }
+        final var recyclerView = this.binding.messagesView;
+        // RecyclerView rejects notifyItem* raised from inside a measure, layout or scroll pass, and
+        // both callers can be reached from exactly there: onVisibleRangeChanged runs from a layout
+        // change listener and from onScrolled, and the loadMoreMessages callback hops back through
+        // Activity#runOnUiThread, which executes inline when it is already on the main thread. Run
+        // after the pass finishes instead. `before` is already captured, and `after` is read when
+        // this actually executes, so the diff still describes the real transition.
+        if (recyclerView.isComputingLayout()) {
+            recyclerView.post(() -> dispatchMessageListDiff(before));
             return;
         }
         final var after = snapshotMessageKeys();
