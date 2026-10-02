@@ -142,19 +142,29 @@ public final class Activities {
     }
 
     /**
-     * Pads {@code view} by whichever is taller, the navigation bar or the keyboard, so a bottom bar
-     * rides up with the IME instead of being covered by it.
+     * Lifts {@code view} clear of the navigation bar, and of the keyboard while it is open, by
+     * growing its bottom margin.
      *
-     * <p>The same padding is also recomputed on every frame of the keyboard animation. Without the
-     * animation callback the platform only reports IME insets once the animation has finished, so
-     * the composer snaps into place after the keyboard has already finished opening.
+     * <p>Margin rather than padding. Padding grows the view's own box while its bottom edge stays
+     * pinned to the parent, which squashes any child laid out with {@code layout_centerVertical}
+     * into the remaining sliver of content box — for the composer that pushed the input field and
+     * the send button off screen entirely. A margin moves the whole view and leaves its internal
+     * layout untouched.
+     *
+     * <p>The margin is also recomputed on every frame of the keyboard animation, because the
+     * platform otherwise reports IME insets only once the animation has finished and the view
+     * would snap into position after the keyboard had already opened.
      */
-    public static void applyBottomInsetWithIme(final View view) {
-        final int paddingBottom = view.getPaddingBottom();
+    public static void applyBottomMarginInsetWithIme(final View view) {
+        final var layoutParams = view.getLayoutParams();
+        if (!(layoutParams instanceof ViewGroup.MarginLayoutParams marginLayoutParams)) {
+            return;
+        }
+        final int marginBottom = marginLayoutParams.bottomMargin;
         ViewCompat.setOnApplyWindowInsetsListener(
                 view,
                 (v, windowInsets) -> {
-                    applyImePadding(v, windowInsets, paddingBottom);
+                    applyImeMargin(v, windowInsets, marginBottom);
                     return windowInsets;
                 });
         ViewCompat.setWindowInsetsAnimationCallback(
@@ -166,24 +176,30 @@ public final class Activities {
                     public WindowInsetsCompat onProgress(
                             @NonNull final WindowInsetsCompat windowInsets,
                             @NonNull final List<WindowInsetsAnimationCompat> running) {
-                        applyImePadding(view, windowInsets, paddingBottom);
+                        applyImeMargin(view, windowInsets, marginBottom);
                         return windowInsets;
                     }
                 });
         requestInsets(view);
     }
 
-    private static void applyImePadding(
-            final View view, final WindowInsetsCompat windowInsets, final int paddingBottom) {
+    private static void applyImeMargin(
+            final View view, final WindowInsetsCompat windowInsets, final int marginBottom) {
+        final var params = view.getLayoutParams();
+        if (!(params instanceof ViewGroup.MarginLayoutParams marginLayoutParams)) {
+            return;
+        }
         final var bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
         final var ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
-        // Whichever is taller, never both: while the keyboard is up it already covers the
-        // navigation bar, so adding the two would leave a gap the height of the bar.
-        view.setPadding(
-                view.getPaddingLeft(),
-                view.getPaddingTop(),
-                view.getPaddingRight(),
-                paddingBottom + Math.max(bars.bottom, ime.bottom));
+        // Whichever is taller, never the sum. An open keyboard already covers the navigation bar,
+        // whether that bar is the tall three-button one or a slim gesture handle, so adding both
+        // would leave a gap the height of the bar above the keyboard.
+        final int bottom = marginBottom + Math.max(bars.bottom, ime.bottom);
+        if (marginLayoutParams.bottomMargin == bottom) {
+            return;
+        }
+        marginLayoutParams.bottomMargin = bottom;
+        view.setLayoutParams(marginLayoutParams);
     }
 
     /** Pads {@code view} by the navigation bar height only. */

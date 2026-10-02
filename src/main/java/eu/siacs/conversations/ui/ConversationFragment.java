@@ -1338,7 +1338,7 @@ public class ConversationFragment extends XmppFragment
 
         registerForContextMenu(binding.messagesView);
 
-        Activities.applyBottomInsetWithIme(binding.textsend);
+        Activities.applyBottomMarginInsetWithIme(binding.textsend);
 
         this.binding.textinput.setCustomInsertionActionModeCallback(
                 new EditMessageActionModeCallback(this.binding.textinput));
