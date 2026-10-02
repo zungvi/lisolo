@@ -325,6 +325,12 @@ public class ConversationFragment extends XmppFragment
     }
 
     private void onMoreMessagesLoadedImpl(final Conversation conversation) {
+        // Sampled before the refill. Someone sitting at the newest message must stay there: the
+        // re-anchoring below is for keeping your place while reading history, and applying it at
+        // the bottom drags the viewport up to show an old message at the top instead. Opening a
+        // chat hits this, because the first layout is enough to put the top of the list in view
+        // and ask for more history.
+        final boolean wasAtBottom = scrolledToBottom();
         final int oldPosition = Math.max(firstVisiblePosition(), 0);
         Message message = null;
         int childPos;
@@ -338,9 +344,14 @@ public class ConversationFragment extends XmppFragment
         final View v = binding.messagesView.getChildAt(childPos);
         final int pxOffset = (v == null) ? 0 : v.getTop();
         refillMessageList(() -> this.conversation.populateWithMessages(this.messageList));
-        int pos = Math.max(getIndexOf(uuid, messageList), 0);
-        // Anchor the row the user was reading so prepending history does not shift the viewport.
-        scrollToPositionWithOffset(pos, pxOffset);
+        if (wasAtBottom) {
+            scrollToNewest();
+        } else {
+            final int pos = Math.max(getIndexOf(uuid, messageList), 0);
+            // Anchor the row the user was reading so prepending history does not shift the
+            // viewport out from under them.
+            scrollToPositionWithOffset(pos, pxOffset);
+        }
         if (messageLoaderToast != null) {
             messageLoaderToast.cancel();
         }
