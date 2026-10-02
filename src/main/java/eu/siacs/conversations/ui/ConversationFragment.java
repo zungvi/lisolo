@@ -2914,6 +2914,17 @@ public class ConversationFragment extends XmppFragment
         return "s:" + message.getType() + ':' + message.getBody() + ':' + message.getTimeSent();
     }
 
+    /** Rows backed by an actual message, as opposed to date separators and typing notices. */
+    private static int realMessageCount(final List<String> keys) {
+        int count = 0;
+        for (final String key : keys) {
+            if (key.startsWith("u:")) {
+                ++count;
+            }
+        }
+        return count;
+    }
+
     private List<String> snapshotMessageKeys() {
         final List<String> keys = new ArrayList<>(this.messageList.size());
         for (final Message message : this.messageList) {
@@ -2994,10 +3005,16 @@ public class ConversationFragment extends XmppFragment
         // re-enters this method cannot diff against the old baseline a second time.
         this.dispatchedMessageKeys = after;
         diff.dispatchUpdatesTo(this.messageListAdapter);
-        // The one place scrolling is appropriate: a message arrived while the user was already
-        // reading the newest one. Anyone who has scrolled back through history is left alone - the
-        // scroll-to-bottom button and its unread count are how they come back.
-        if (wasAtBottom && after.size() > before.size()) {
+        // The one place scrolling is appropriate: a real message arrived while the user was
+        // already reading the newest one. Anyone who has scrolled back through history is left
+        // alone - the scroll-to-bottom button and its unread count are how they come back.
+        //
+        // Counting rows is not enough. Typing notices are inserted into messageList as rows of
+        // their own, so in an active conversation every "is typing" that appears and disappears
+        // changed the row count and scrolled the list, over and over. Only rows carrying a real
+        // message count, which diffKey marks with the "u:" prefix since synthetic rows have no
+        // uuid.
+        if (wasAtBottom && realMessageCount(after) > realMessageCount(before)) {
             recyclerView.post(this::scrollToNewest);
         }
     }
