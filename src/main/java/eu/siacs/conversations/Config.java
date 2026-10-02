@@ -12,7 +12,11 @@ public final class Config {
 
     public static final boolean QUICK_LOG = false;
 
-    public static final Jid BUG_REPORTS = Jid.of("bugs@zungvi.com");
+    // zungvi.com publishes no XMPP SRV records and is not served as a VirtualHost, so sending here
+    // failed federation with item-not-found. xmpp.zungvi.net is the host that actually serves
+    // accounts. OMEMO is off by default for this address (see Conversation#suitableForOmemoByDefault),
+    // which is why it must be a dedicated account and not a personal JID.
+    public static final Jid BUG_REPORTS = Jid.of("bugs@xmpp.zungvi.net");
     public static final Uri HELP = Uri.parse("https://zungvi.com/help");
 
     public static final String MAGIC_CREATE_DOMAIN = "zungvi.com";
