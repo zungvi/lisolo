@@ -387,7 +387,7 @@ public class ConversationFragment extends XmppFragment
                 public void onScrolled(
                         @NonNull final RecyclerView view, final int dx, final int dy) {
                     toggleScrollDownButton();
-                    maybeLoadMoreMessages();
+                    maybeLoadMoreMessages(dy);
                 }
             };
     private final EditMessage.OnCommitContentListener mEditorContentListener =
@@ -819,12 +819,24 @@ public class ConversationFragment extends XmppFragment
      * short to scroll cannot reach this, which is what the "load more messages" button at the top
      * of such a conversation is for.
      */
-    private void maybeLoadMoreMessages() {
+    private void maybeLoadMoreMessages(final int dy) {
+        // Only while moving towards older messages. The list is oldest-first, so that is a
+        // negative delta. Without this, a short conversation that fits on screen keeps position 0
+        // visible even while the user sits at the bottom, so "firstVisibleItem < 5" held at all
+        // times and every scroll - including at the very bottom - asked the server for more
+        // history, over and over.
+        if (dy >= 0) {
+            return;
+        }
         final int firstVisibleItem = firstVisiblePosition();
         synchronized (this.messageList) {
             if (firstVisibleItem >= 0
                     && firstVisibleItem < 5
                     && conversation != null
+                    // Stop asking once the archive says there is nothing older. The flag is kept
+                    // up to date from the MAM "done" marker and already gates the manual
+                    // "load more messages" button; it was simply never consulted here.
+                    && conversation.hasMessagesLeftOnServer()
                     && conversation.messagesLoaded.compareAndSet(true, false)
                     && !messageList.isEmpty()) {
                 final long timestamp;
