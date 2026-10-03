@@ -94,6 +94,7 @@ import eu.siacs.conversations.xmpp.mam.MamReference;
 import eu.siacs.conversations.xmpp.manager.MessageArchiveManager;
 import im.conversations.android.xmpp.model.reactions.Restrictions;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
@@ -110,7 +111,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
     private static final int DATE_SEPARATOR = 3;
     private static final int RTP_SESSION = 4;
     private final XmppActivity activity;
-    private final List<Message> messages;
+    private List<Message> messages;
     private final AudioPlayer audioPlayer;
     private List<String> highlightedTerm = null;
     private final DisplayMetrics metrics;
@@ -133,8 +134,9 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
         // super(activity, 0, messages), so constructing the player first was safe. It no longer is,
         // and doing it first left getContext() returning null.
         this.activity = activity;
-        // The list is owned by the caller, which refills it in place; this adapter only reads it.
-        this.messages = messages;
+        // RecyclerView must keep seeing its old item count until the matching DiffUtil updates are
+        // dispatched. Holding the caller's mutable list broke that contract during every refill.
+        this.messages = new ArrayList<>(messages);
         this.mForceNames = forceNames;
         this.metrics = activity.getResources().getDisplayMetrics();
         this.audioPlayer = new AudioPlayer(this);
@@ -153,6 +155,11 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
     @Override
     public int getItemCount() {
         return this.messages.size();
+    }
+
+    /** Replaces the adapter snapshot immediately before its matching notifications are dispatched. */
+    public void replaceMessages(final List<Message> messages) {
+        this.messages = new ArrayList<>(messages);
     }
 
     public MessageAdapter(final XmppActivity activity, final List<Message> messages) {
@@ -1326,7 +1333,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
         return merge(message, bottom);
     }
 
-    private static boolean merge(final Message a, final Message b) {
+    /** Whether two adjacent messages render as one visual bubble group. */
+    public static boolean merge(final Message a, final Message b) {
         if (getItemViewType(a, false) != getItemViewType(b, false)) {
             return false;
         }
@@ -1518,15 +1526,19 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
                 .show();
     }
 
-    public void updatePreferences() {
+    /** Updates bubble presentation and reports whether existing rows need rebinding. */
+    public boolean updatePreferences() {
         final AppSettings appSettings = new AppSettings(activity);
-        this.bubbleDesign =
+        final BubbleDesign updated =
                 new BubbleDesign(
                         appSettings.isColorfulChatBubbles(),
                         appSettings.isAlignStart(),
                         appSettings.isLargeFont(),
                         appSettings.isShowAvatars11(),
                         appSettings.isShowAvatarsAccounts());
+        final boolean changed = !this.bubbleDesign.sameAs(updated);
+        this.bubbleDesign = updated;
+        return changed;
     }
 
     public void setHighlightedTerm(List<String> terms) {
@@ -1672,6 +1684,14 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
             this.largeFont = largeFont;
             this.showAvatars11 = showAvatars11;
             this.showAvatarsAccounts = showAvatarsAccounts;
+        }
+
+        private boolean sameAs(final BubbleDesign other) {
+            return this.colorfulChatBubbles == other.colorfulChatBubbles
+                    && this.alignStart == other.alignStart
+                    && this.largeFont == other.largeFont
+                    && this.showAvatars11 == other.showAvatars11
+                    && this.showAvatarsAccounts == other.showAvatarsAccounts;
         }
     }
 

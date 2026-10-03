@@ -269,6 +269,7 @@ public class SearchActivity extends XmppActivity
             MessageSearchTask.cancelRunningTasks();
             this.messages.clear();
             messageListAdapter.setHighlightedTerm(null);
+            messageListAdapter.replaceMessages(this.messages);
             messageListAdapter.notifyDataSetChanged();
             changeBackground(false, false);
         } else {
@@ -284,6 +285,7 @@ public class SearchActivity extends XmppActivity
                     messageListAdapter.setHighlightedTerm(term);
                     DateSeparator.addAll(messages);
                     this.messages.addAll(messages);
+                    messageListAdapter.replaceMessages(this.messages);
                     messageListAdapter.notifyDataSetChanged();
                     changeBackground(true, !messages.isEmpty());
                     scrollToBottom();
