@@ -1998,12 +1998,15 @@ public class XmppConnectionService extends Service {
             final Conversation conversation,
             final long timestamp,
             final OnMoreMessagesLoaded callback) {
-        final var connection = conversation.getAccount().getXmppConnection();
-        if (connection
-                .getManager(MessageArchiveManager.class)
-                .queryInProgress(conversation, callback)) {
+        final Account account = conversation.getAccount();
+        final var connection = account.getXmppConnection();
+        if (connection != null
+                && connection
+                        .getManager(MessageArchiveManager.class)
+                        .historyQueryInProgress(conversation, callback)) {
             return;
         } else if (timestamp == 0) {
+            callback.onMoreMessagesLoaded(0, conversation);
             return;
         }
         Log.d(
@@ -2014,42 +2017,53 @@ public class XmppConnectionService extends Service {
                         + MessageGenerator.getTimestamp(timestamp));
         final Runnable runnable =
                 () -> {
-                    final Account account = conversation.getAccount();
-                    List<Message> messages =
-                            databaseBackend.getMessages(conversation, 50, timestamp);
-                    if (messages.size() > 0) {
-                        conversation.addAll(0, messages);
-                        callback.onMoreMessagesLoaded(messages.size(), conversation);
-                    } else if (conversation.hasMessagesLeftOnServer()
-                            && account.isOnlineAndConnected()
-                            && conversation.getLastClearHistory().getTimestamp() == 0) {
-                        final boolean mamAvailable;
-                        if (conversation.getMode() == Conversation.MODE_SINGLE) {
-                            mamAvailable =
-                                    account.getXmppConnection()
-                                                    .getManager(MessageArchiveManager.class)
-                                                    .hasFeature()
-                                            && !conversation.getContact().isBlocked();
-                        } else {
-                            mamAvailable = conversation.getMucOptions().mamSupport();
+                    try {
+                        final List<Message> messages =
+                                databaseBackend.getMessages(
+                                        conversation, Config.PAGE_SIZE, timestamp);
+                        if (!messages.isEmpty()) {
+                            Log.d(Config.LOGTAG, "older history: local page size=" + messages.size());
+                            conversation.addAll(0, messages);
+                            callback.onMoreMessagesLoaded(messages.size(), conversation);
+                            return;
                         }
-                        if (mamAvailable) {
-                            MessageArchiveManager.Query query =
-                                    connection
-                                            .getManager(MessageArchiveManager.class)
-                                            .query(
-                                                    conversation,
-                                                    new MamReference(0),
-                                                    timestamp,
-                                                    false);
-                            if (query != null) {
-                                query.setCallback(callback);
+                        if (conversation.hasMessagesLeftOnServer()
+                                && account.isOnlineAndConnected()
+                                && conversation.getLastClearHistory().getTimestamp() == 0) {
+                            final var currentConnection = account.getXmppConnection();
+                            final var manager =
+                                    currentConnection.getManager(MessageArchiveManager.class);
+                            final boolean mamAvailable =
+                                    conversation.getMode() == Conversation.MODE_SINGLE
+                                            ? manager.hasFeature() && !conversation.isBlocked()
+                                            : conversation.getMucOptions().mamSupport();
+                            Log.d(Config.LOGTAG, "older history: no local page; MAM available=" + mamAvailable);
+                            if (mamAvailable) {
+                                // Install the callback before sending the IQ: an immediate error
+                                // must still release the fragment's history-load guard.
                                 callback.informUser(R.string.fetching_history_from_server);
-                            } else {
+                                final var query =
+                                        manager.query(
+                                                conversation,
+                                                new MamReference(0),
+                                                timestamp,
+                                                false,
+                                                callback);
+                                if (query != null) {
+                                    return;
+                                }
                                 callback.informUser(R.string.not_fetching_history_retention_period);
                             }
                         }
+                    } catch (final RuntimeException e) {
+                        Log.d(Config.LOGTAG, "could not load older conversation messages", e);
+                        callback.onMoreMessagesLoaded(0, conversation);
+                        callback.informUser(R.string.history_load_failed);
+                        return;
                     }
+                    // Empty local history, offline/no-MAM accounts and retention limits are also
+                    // completed requests. Previously these branches left messagesLoaded=false.
+                    callback.onMoreMessagesLoaded(0, conversation);
                 };
         mDatabaseReaderExecutor.execute(runnable);
     }

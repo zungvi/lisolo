@@ -23,7 +23,9 @@ import eu.siacs.conversations.xml.Namespace;
 import eu.siacs.conversations.xmpp.Jid;
 import eu.siacs.conversations.xmpp.XmppConnection;
 import eu.siacs.conversations.xmpp.mam.MamReference;
+import im.conversations.android.xmpp.IqErrorException;
 import im.conversations.android.xmpp.Range;
+import im.conversations.android.xmpp.model.error.Condition;
 import im.conversations.android.xmpp.model.mam.Fin;
 import im.conversations.android.xmpp.model.mam.Preferences;
 import im.conversations.android.xmpp.model.stanza.Iq;
@@ -32,7 +34,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.concurrent.TimeoutException;
 
 public class MessageArchiveManager extends AbstractManager {
 
@@ -50,8 +51,11 @@ public class MessageArchiveManager extends AbstractManager {
 
     public void catchup() {
         synchronized (this.queries) {
-            // TODO there was no 'kill' before but maybe we need one?
+            final var cancelled = new ArrayList<>(this.queries);
             this.queries.clear();
+            for (final Query query : cancelled) {
+                releaseCancelledLoadGuard(query, query.hasCallback());
+            }
         }
         MamReference mamReference =
                 MamReference.max(
@@ -132,13 +136,25 @@ public class MessageArchiveManager extends AbstractManager {
 
     public Query query(
             Conversation conversation, MamReference start, long end, boolean allowCatchup) {
+        return query(conversation, start, end, allowCatchup, null);
+    }
+
+    public Query query(
+            Conversation conversation,
+            MamReference start,
+            long end,
+            boolean allowCatchup,
+            XmppConnectionService.OnMoreMessagesLoaded callback) {
         synchronized (this.queries) {
             final Query query;
             final MamReference startActual =
                     MamReference.max(
                             start, mXmppConnectionService.getAutomaticMessageDeletionDate());
+            if (end != 0 && startActual.greaterThan(end)) {
+                return null;
+            }
             if (start.getTimestamp() == 0) {
-                query = new Query(conversation, startActual, end, false);
+                query = new Query(conversation, startActual, end, false, true);
                 query.reference = conversation.getFirstMamReference();
             } else {
                 if (allowCatchup) {
@@ -161,9 +177,7 @@ public class MessageArchiveManager extends AbstractManager {
                     query = new Query(conversation, startActual, end, false);
                 }
             }
-            if (end != 0 && start.greaterThan(end)) {
-                return null;
-            }
+            query.setCallback(callback);
             this.queries.add(query);
             this.execute(query);
             return query;
@@ -229,24 +243,36 @@ public class MessageArchiveManager extends AbstractManager {
 
                     @Override
                     public void onFailure(@NonNull Throwable t) {
-                        if (t instanceof TimeoutException) {
+                        synchronized (queries) {
+                            if (!queries.contains(query)) {
+                                return;
+                            }
+                        }
+                        if (shouldRetryWithoutReference(query, t)) {
+                            // Retention or a changed archive can invalidate an RSM cursor. Retry
+                            // once using the existing time bound, without discarding local history.
+                            Log.d(Config.LOGTAG, "MAM history cursor expired; retrying by timestamp");
+                            final Query retry = query.retryWithoutReference();
+                            query.getConversation().setFirstMamReference(null);
                             synchronized (queries) {
-                                queries.remove(query);
-                                if (query.hasCallback()) {
-                                    query.callback(false);
-                                }
+                                queries.add(retry);
                             }
-                        } else {
-                            Log.d(
-                                    Config.LOGTAG,
-                                    getAccount().getJid().asBareJid().toString()
-                                            + ": error executing mam",
-                                    t);
-                            try {
-                                finalizeQuery(query, true);
-                            } catch (final IllegalStateException e) {
-                                // ignored
+                            finalizeQuery(query, false, false);
+                            execute(retry);
+                            return;
+                        }
+                        Log.d(
+                                Config.LOGTAG,
+                                getAccount().getJid().asBareJid() + ": error executing mam " + query,
+                                t);
+                        try {
+                            // Errors and timeouts leave archive pagination retryable.
+                            finalizeQuery(query, false);
+                            if (query.hasCallback()) {
+                                query.callback.informUser(R.string.history_load_failed);
                             }
+                        } catch (final IllegalStateException e) {
+                            // The connection may have cancelled this query concurrently.
                         }
                     }
                 },
@@ -254,6 +280,10 @@ public class MessageArchiveManager extends AbstractManager {
     }
 
     private void finalizeQuery(final Query query, boolean done) {
+        finalizeQuery(query, done, true);
+    }
+
+    private void finalizeQuery(final Query query, boolean done, final boolean notify) {
         synchronized (this.queries) {
             if (!this.queries.remove(query)) {
                 throw new IllegalStateException("Unable to remove query from queries");
@@ -262,7 +292,9 @@ public class MessageArchiveManager extends AbstractManager {
         final Conversation conversation = query.getConversation();
         if (conversation != null) {
             conversation.sort();
-            conversation.setHasMessagesLeftOnServer(!done);
+            if (query.isHistoryBackfill()) {
+                conversation.setHasMessagesLeftOnServer(!done);
+            }
             final var displayState = conversation.getDisplayState();
             if (displayState != null) {
                 mXmppConnectionService.markReadUpToStanzaId(conversation, displayState);
@@ -278,10 +310,12 @@ public class MessageArchiveManager extends AbstractManager {
                 }
             }
         }
-        if (query.hasCallback()) {
-            query.callback(done);
-        } else {
-            this.mXmppConnectionService.updateConversationUi();
+        if (notify) {
+            if (query.hasCallback()) {
+                query.callback(done);
+            } else {
+                this.mXmppConnectionService.updateConversationUi();
+            }
         }
     }
 
@@ -316,7 +350,9 @@ public class MessageArchiveManager extends AbstractManager {
         synchronized (this.queries) {
             for (Query query : queries) {
                 if (query.conversation == conversation) {
-                    if (!query.hasCallback() && callback != null) {
+                    // The visible fragment may have been recreated while this query was active.
+                    // Its current callback must receive completion instead of an abandoned view.
+                    if (callback != null) {
                         query.setCallback(callback);
                     }
                     return true;
@@ -330,37 +366,48 @@ public class MessageArchiveManager extends AbstractManager {
         return queryInProgress(conversation, null);
     }
 
+    public boolean historyQueryInProgress(
+            final Conversation conversation,
+            final XmppConnectionService.OnMoreMessagesLoaded callback) {
+        synchronized (this.queries) {
+            final Query query = findHistoryQuery(this.queries, conversation);
+            if (query == null) {
+                return false;
+            }
+            if (callback != null) {
+                query.setCallback(callback);
+            }
+            return true;
+        }
+    }
+
+    static Query findHistoryQuery(
+            final Iterable<Query> activeQueries, final Conversation conversation) {
+        for (final Query query : activeQueries) {
+            if (query.conversation == conversation && query.isHistoryBackfill()) {
+                return query;
+            }
+        }
+        return null;
+    }
+
     private void processFin(final Query query, final Fin fin) {
-        boolean complete = fin.getAttributeAsBoolean("complete");
+        boolean complete = fin.isComplete();
         Element set = fin.findChild("set", "http://jabber.org/protocol/rsm");
         Element last = set == null ? null : set.findChild("last");
         String count = set == null ? null : set.findChildContent("count");
         Element first = set == null ? null : set.findChild("first");
         Element relevant = query.getPagingOrder() == PagingOrder.NORMAL ? last : first;
-        boolean abort =
-                (!query.isCatchup() && query.getTotalCount() >= Config.PAGE_SIZE)
-                        || query.getTotalCount() >= Config.MAM_MAX_MESSAGES;
-        if (query.getConversation() != null) {
-            query.getConversation().setFirstMamReference(first == null ? null : first.getContent());
+        final boolean abort = hasReachedPageBudget(query);
+        if (query.isHistoryBackfill() && query.getConversation() != null && first != null) {
+            // Recent synchronization must not replace the cursor used for older-history paging.
+            query.getConversation().setFirstMamReference(first.getContent());
         }
         if (complete || relevant == null || abort) {
-            // TODO: FIX done logic to look at complete. using count is probably unreliable because
-            // it can be ommited and doesn’t work with paging.
-            boolean done;
-            if (query.isCatchup()) {
-                done = false;
-            } else {
-                if (count != null) {
-                    try {
-                        done = Integer.parseInt(count) <= query.getTotalCount();
-                    } catch (NumberFormatException e) {
-                        done = false;
-                    }
-                } else {
-                    done = query.getTotalCount() == 0;
-                }
-            }
-            done = done || (query.getActualMessageCount() == 0 && !query.isCatchup());
+            // XEP-0313's complete flag refers to the requested range. Only a full older-history
+            // scan establishes archive exhaustion; duplicate-only pages and optional RSM counts
+            // do not. A bounded recent sync can finish while much older history still exists.
+            final boolean done = isHistoryComplete(query, complete);
             this.finalizeQuery(query, done);
 
             Log.d(
@@ -370,8 +417,10 @@ public class MessageArchiveManager extends AbstractManager {
                             + query.getTotalCount()
                             + "("
                             + query.getActualMessageCount()
-                            + ") messages. messages left="
-                            + !done
+                            + ") messages. complete="
+                            + complete
+                            + " history exhausted="
+                            + done
                             + " count="
                             + count);
             if (query.isCatchup() && query.getActualMessageCount() > 0) {
@@ -385,12 +434,47 @@ public class MessageArchiveManager extends AbstractManager {
             } else {
                 nextQuery = query.prev(first == null ? null : first.getContent());
             }
-            this.execute(nextQuery);
-            this.finalizeQuery(query, false);
             synchronized (this.queries) {
                 this.queries.add(nextQuery);
             }
+            // Register before sending so early result messages belong to this page. Only the
+            // terminal page completes the caller's load, preserving a single UI re-anchor.
+            this.finalizeQuery(query, false, false);
+            this.execute(nextQuery);
         }
+    }
+
+    static boolean isHistoryComplete(final Query query, final boolean complete) {
+        return query.isHistoryBackfill() && complete;
+    }
+
+    static boolean hasReachedPageBudget(final Query query) {
+        // Servers can archive receipts, key transports, and messages already present locally.
+        // A page of those stanzas must not consume the user's page of visible older messages.
+        return (!query.isCatchup() && query.getActualMessageCount() >= Config.PAGE_SIZE)
+                || query.getTotalCount() >= Config.MAM_MAX_MESSAGES;
+    }
+
+    static boolean shouldReleaseCancelledLoadGuard(
+            final Query cancelled,
+            final boolean hadCallback,
+            final Iterable<Query> activeQueries) {
+        return hadCallback && findHistoryQuery(activeQueries, cancelled.conversation) == null;
+    }
+
+    private void releaseCancelledLoadGuard(final Query query, final boolean hadCallback) {
+        if (query.conversation != null
+                && shouldReleaseCancelledLoadGuard(query, hadCallback, this.queries)) {
+            query.conversation.messagesLoaded.set(true);
+        }
+    }
+
+    static boolean shouldRetryWithoutReference(final Query query, final Throwable error) {
+        return query.isHistoryBackfill()
+                && query.reference != null
+                && !query.retriedWithoutReference
+                && error instanceof IqErrorException iqError
+                && iqError.getErrorCondition() instanceof Condition.ItemNotFound;
     }
 
     public void kill(final Conversation conversation) {
@@ -409,8 +493,15 @@ public class MessageArchiveManager extends AbstractManager {
 
     private void kill(final Query query) {
         Log.d(Config.LOGTAG, getAccount().getJid().asBareJid() + ": killing mam query prematurely");
-        query.callback = null;
-        this.finalizeQuery(query, false);
+        synchronized (this.queries) {
+            final boolean hadCallback = query.hasCallback();
+            query.callback = null;
+            this.finalizeQuery(query, false, false);
+            releaseCancelledLoadGuard(query, hadCallback);
+        }
+        // Publish cancellation after releasing its load guard so a refreshed conversation can
+        // request history again, rather than observing the cancelled request as still loading.
+        this.mXmppConnectionService.updateConversationUi();
         if (query.isCatchup() && query.getActualMessageCount() > 0) {
             mXmppConnectionService.getNotificationService().finishBacklog(true, getAccount());
         }
@@ -564,12 +655,24 @@ public class MessageArchiveManager extends AbstractManager {
         private PagingOrder pagingOrder = PagingOrder.NORMAL;
         private XmppConnectionService.OnMoreMessagesLoaded callback = null;
         private boolean catchup = true;
+        private boolean historyBackfill = false;
+        private boolean retriedWithoutReference = false;
 
         Query(Conversation conversation, MamReference start, long end, boolean catchup) {
+            this(conversation, start, end, catchup, !catchup && start.getTimestamp() == 0);
+        }
+
+        Query(
+                Conversation conversation,
+                MamReference start,
+                long end,
+                boolean catchup,
+                boolean historyBackfill) {
             this(catchup ? start : start.timeOnly(), end);
             this.conversation = conversation;
             this.pagingOrder = catchup ? PagingOrder.NORMAL : PagingOrder.REVERSE;
             this.catchup = catchup;
+            this.historyBackfill = historyBackfill;
         }
 
         Query(MamReference start, long end) {
@@ -584,6 +687,9 @@ public class MessageArchiveManager extends AbstractManager {
 
         private Query page(String reference) {
             Query query = new Query(new MamReference(this.start, reference), this.end);
+            // The generic constructor chooses an ID reference over its timestamp. Pagination
+            // still needs both the cursor and the original filter/retention lower bound.
+            query.start = this.start;
             query.conversation = conversation;
             query.totalCount = totalCount;
             query.actualCount = actualCount;
@@ -591,7 +697,16 @@ public class MessageArchiveManager extends AbstractManager {
             query.receiptRequests = receiptRequests;
             query.callback = callback;
             query.catchup = catchup;
+            query.historyBackfill = historyBackfill;
+            query.retriedWithoutReference = retriedWithoutReference;
             return query;
+        }
+
+        Query retryWithoutReference() {
+            final Query retry = page(null);
+            retry.pagingOrder = pagingOrder;
+            retry.retriedWithoutReference = true;
+            return retry;
         }
 
         public void removePendingReceiptRequest(ReceiptRequest receiptRequest) {
@@ -646,6 +761,10 @@ public class MessageArchiveManager extends AbstractManager {
 
         public boolean isCatchup() {
             return catchup;
+        }
+
+        boolean isHistoryBackfill() {
+            return historyBackfill;
         }
 
         public void setCallback(XmppConnectionService.OnMoreMessagesLoaded callback) {

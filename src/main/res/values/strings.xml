@@ -367,6 +367,7 @@
     <string name="error_no_keys_to_trust_presence">There are no usable keys available for this contact.\nMake sure you both have presence subscription.</string>
     <string name="error_trustkeys_title">Something went wrong</string>
     <string name="fetching_history_from_server">Fetching history from server</string>
+    <string name="history_load_failed">Could not retrieve message history. Try again.</string>
     <string name="no_more_history_on_server">No more history on server</string>
     <string name="updating">Updating…</string>
     <string name="password_changed">Password changed!</string>
