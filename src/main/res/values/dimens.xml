@@ -24,6 +24,9 @@
     <dimen name="avatar_on_status_message">32dp</dimen>
     <dimen name="avatar">48dp</dimen>
     <dimen name="avatar_on_details_screen_size">56dp</dimen>
+    <!-- The 1:1 chat partner, shown in the toolbar instead of beside every bubble. -->
+    <dimen name="avatar_on_toolbar">32dp</dimen>
+    <dimen name="toolbar_avatar_gap">12dp</dimen>
     <dimen name="avatar_on_conversation_overview">56dp</dimen>
 
     <dimen name="input_label_vertical_spacing">4dp</dimen>
