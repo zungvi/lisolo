@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Inter, by The Inter Project Authors, under the SIL Open Font License 1.1.
+  See docs/LICENSE-Inter.txt.
+
+  Static instances rather than InterVariable.ttf: the app supports API 23, and the weight axis of a
+  variable font is only honoured from API 26, which would flatten every weight to 400 on older
+  devices. Italics are left to the platform's synthetic slant.
+-->
+<font-family xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <font
+        app:font="@font/inter_regular"
+        app:fontStyle="normal"
+        app:fontWeight="400" />
+
+    <font
+        app:font="@font/inter_medium"
+        app:fontStyle="normal"
+        app:fontWeight="500" />
+
+    <font
+        app:font="@font/inter_bold"
+        app:fontStyle="normal"
+        app:fontWeight="700" />
+
+</font-family>

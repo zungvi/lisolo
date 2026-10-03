@@ -2,6 +2,7 @@ package eu.siacs.conversations.ui.adapter;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
@@ -21,7 +22,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
-import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
@@ -37,6 +37,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.widget.ImageViewCompat;
 import androidx.databinding.DataBindingUtil;
+import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.color.MaterialColors;
@@ -77,6 +78,7 @@ import eu.siacs.conversations.ui.text.FixedURLSpan;
 import eu.siacs.conversations.ui.text.QuoteSpan;
 import eu.siacs.conversations.ui.util.Attachment;
 import eu.siacs.conversations.ui.util.AvatarWorkerTask;
+import eu.siacs.conversations.ui.util.Typefaces;
 import eu.siacs.conversations.ui.util.QuoteHelper;
 import eu.siacs.conversations.ui.util.ViewUtil;
 import eu.siacs.conversations.ui.widget.ClickableMovementMethod;
@@ -92,6 +94,7 @@ import eu.siacs.conversations.xmpp.mam.MamReference;
 import eu.siacs.conversations.xmpp.manager.MessageArchiveManager;
 import im.conversations.android.xmpp.model.reactions.Restrictions;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
@@ -99,7 +102,7 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class MessageAdapter extends ArrayAdapter<Message> {
+public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageItemViewHolder> {
 
     public static final String DATE_SEPARATOR_BODY = "DATE_SEPARATOR";
     private static final int END = 0;
@@ -108,22 +111,55 @@ public class MessageAdapter extends ArrayAdapter<Message> {
     private static final int DATE_SEPARATOR = 3;
     private static final int RTP_SESSION = 4;
     private final XmppActivity activity;
+    private List<Message> messages;
     private final AudioPlayer audioPlayer;
     private List<String> highlightedTerm = null;
     private final DisplayMetrics metrics;
     private OnContactPictureClicked mOnContactPictureClickedListener;
+    private OnReplyPreviewClicked mOnReplyPreviewClickedListener;
+
+    /**
+     * The message currently flashed after jumping to it from a reply, or null. Held as a uuid
+     * rather than a Message so a row rebuilt from the database still matches.
+     */
+    private String highlightedMessageUuid;
     private OnContactPictureLongClicked mOnContactPictureLongClickedListener;
     private BubbleDesign bubbleDesign = new BubbleDesign(false, false, false, true, true);
     private final boolean mForceNames;
 
     public MessageAdapter(
             final XmppActivity activity, final List<Message> messages, final boolean forceNames) {
-        super(activity, 0, messages);
-        this.audioPlayer = new AudioPlayer(this);
+        // Order matters. AudioPlayer's constructor calls back into getContext(), which now reads
+        // this.activity; while this was an ArrayAdapter the context had already been handed to
+        // super(activity, 0, messages), so constructing the player first was safe. It no longer is,
+        // and doing it first left getContext() returning null.
         this.activity = activity;
-        metrics = getContext().getResources().getDisplayMetrics();
-        updatePreferences();
+        // RecyclerView must keep seeing its old item count until the matching DiffUtil updates are
+        // dispatched. Holding the caller's mutable list broke that contract during every refill.
+        this.messages = new ArrayList<>(messages);
         this.mForceNames = forceNames;
+        this.metrics = activity.getResources().getDisplayMetrics();
+        this.audioPlayer = new AudioPlayer(this);
+        updatePreferences();
+    }
+
+    /** Public because {@link AudioPlayer} relies on it, as it did when this was an ArrayAdapter. */
+    public Context getContext() {
+        return this.activity;
+    }
+
+    private Message getItem(final int position) {
+        return this.messages.get(position);
+    }
+
+    @Override
+    public int getItemCount() {
+        return this.messages.size();
+    }
+
+    /** Replaces the adapter snapshot immediately before its matching notifications are dispatched. */
+    public void replaceMessages(final List<Message> messages) {
+        this.messages = new ArrayList<>(messages);
     }
 
     public MessageAdapter(final XmppActivity activity, final List<Message> messages) {
@@ -156,13 +192,29 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         return activity;
     }
 
-    public void setOnContactPictureLongClicked(OnContactPictureLongClicked listener) {
-        this.mOnContactPictureLongClickedListener = listener;
+    public void setOnReplyPreviewClicked(final OnReplyPreviewClicked listener) {
+        this.mOnReplyPreviewClickedListener = listener;
     }
 
-    @Override
-    public int getViewTypeCount() {
-        return 5;
+    /** Pass null to clear. The caller is responsible for rebinding the affected rows. */
+    public void setHighlightedMessage(final String uuid) {
+        this.highlightedMessageUuid = uuid;
+    }
+
+    public int positionOf(final String uuid) {
+        if (uuid == null) {
+            return -1;
+        }
+        for (int i = 0; i < this.messages.size(); ++i) {
+            if (uuid.equals(this.messages.get(i).getUuid())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public void setOnContactPictureLongClicked(OnContactPictureLongClicked listener) {
+        this.mOnContactPictureLongClickedListener = listener;
     }
 
     private static int getItemViewType(final Message message, final boolean alignStart) {
@@ -370,7 +422,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         viewHolder.messageBody().setVisibility(View.VISIBLE);
         viewHolder.messageBody().setText(text);
         setTextSize(viewHolder.messageBody(), this.bubbleDesign.largeFont);
-        viewHolder.messageBody().setTypeface(null, Typeface.ITALIC);
+        Typefaces.apply(viewHolder.messageBody(), Typefaces.regular(activity), true);
         viewHolder
                 .messageBody()
                 .setTextColor(bubbleToOnSurfaceVariant(viewHolder.messageBody(), bubbleColor));
@@ -384,7 +436,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         viewHolder.downloadButton().setVisibility(View.GONE);
         viewHolder.audioPlayer().setVisibility(View.GONE);
         viewHolder.image().setVisibility(View.GONE);
-        viewHolder.messageBody().setTypeface(null, Typeface.NORMAL);
+        Typefaces.apply(viewHolder.messageBody(), Typefaces.regular(activity), false);
         viewHolder.messageBody().setVisibility(View.VISIBLE);
         setTextColor(viewHolder.messageBody(), bubbleColor);
         final Spannable span = new SpannableString(body);
@@ -486,7 +538,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         viewHolder.messageBody().setVisibility(View.VISIBLE);
         setTextColor(viewHolder.messageBody(), bubbleColor);
         setTextSize(viewHolder.messageBody(), this.bubbleDesign.largeFont);
-        viewHolder.messageBody().setTypeface(null, Typeface.NORMAL);
+        Typefaces.apply(viewHolder.messageBody(), Typefaces.regular(activity), false);
         final var rawBody = message.getBody();
         if (Strings.isNullOrEmpty(rawBody)) {
             viewHolder.messageBody().setText("");
@@ -721,7 +773,7 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                     privateMarker.length(),
                     Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
             viewHolder.messageBody().setText(body);
-            viewHolder.messageBody().setTypeface(null, Typeface.NORMAL);
+            Typefaces.apply(viewHolder.messageBody(), Typefaces.regular(activity), false);
             viewHolder.messageBody().setVisibility(View.VISIBLE);
         } else {
             viewHolder.messageBody().setVisibility(View.GONE);
@@ -755,86 +807,71 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
     }
 
-    private MessageItemViewHolder getViewHolder(
-            final View view, final @NonNull ViewGroup parent, final int type) {
-        if (view != null && view.getTag() instanceof MessageItemViewHolder messageItemViewHolder) {
-            return messageItemViewHolder;
-        } else {
-            final MessageItemViewHolder viewHolder =
-                    switch (type) {
-                        case RTP_SESSION ->
-                                new RtpSessionMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_rtp_session,
-                                                parent,
-                                                false));
-                        case DATE_SEPARATOR ->
-                                new DateSeperatorMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_date_bubble,
-                                                parent,
-                                                false));
-                        case STATUS ->
-                                new StatusMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_status,
-                                                parent,
-                                                false));
-                        case END ->
-                                new EndBubbleMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_end,
-                                                parent,
-                                                false));
-                        case START ->
-                                new StartBubbleMessageItemViewHolder(
-                                        DataBindingUtil.inflate(
-                                                LayoutInflater.from(parent.getContext()),
-                                                R.layout.item_message_start,
-                                                parent,
-                                                false));
-                        default -> throw new AssertionError("Unable to create ViewHolder for type");
-                    };
-            viewHolder.itemView.setTag(viewHolder);
-            return viewHolder;
-        }
-    }
-
     @NonNull
     @Override
-    public View getView(final int position, final View view, final @NonNull ViewGroup parent) {
+    public MessageItemViewHolder onCreateViewHolder(
+            @NonNull final ViewGroup parent, final int viewType) {
+        final var inflater = LayoutInflater.from(parent.getContext());
+        return switch (viewType) {
+            case RTP_SESSION ->
+                    new RtpSessionMessageItemViewHolder(
+                            DataBindingUtil.inflate(
+                                    inflater, R.layout.item_message_rtp_session, parent, false));
+            case DATE_SEPARATOR ->
+                    new DateSeperatorMessageItemViewHolder(
+                            DataBindingUtil.inflate(
+                                    inflater, R.layout.item_message_date_bubble, parent, false));
+            case STATUS ->
+                    new StatusMessageItemViewHolder(
+                            DataBindingUtil.inflate(
+                                    inflater, R.layout.item_message_status, parent, false));
+            case END ->
+                    new EndBubbleMessageItemViewHolder(
+                            DataBindingUtil.inflate(
+                                    inflater, R.layout.item_message_end, parent, false));
+            case START ->
+                    new StartBubbleMessageItemViewHolder(
+                            DataBindingUtil.inflate(
+                                    inflater, R.layout.item_message_start, parent, false));
+            default -> throw new AssertionError("Unable to create ViewHolder for type " + viewType);
+        };
+    }
+
+    @Override
+    public void onBindViewHolder(
+            @NonNull final MessageItemViewHolder viewHolder, final int position) {
         final Message message = getItem(position);
         final int type = getItemViewType(message, bubbleDesign.alignStart);
-        final MessageItemViewHolder viewHolder = getViewHolder(view, parent, type);
 
         if (type == DATE_SEPARATOR
                 && viewHolder instanceof DateSeperatorMessageItemViewHolder messageItemViewHolder) {
-            return render(message, messageItemViewHolder);
+            render(message, messageItemViewHolder);
+            return;
         }
 
         if (type == RTP_SESSION
                 && viewHolder instanceof RtpSessionMessageItemViewHolder messageItemViewHolder) {
-            return render(message, messageItemViewHolder);
+            render(message, messageItemViewHolder);
+            return;
         }
 
         if (type == STATUS
                 && viewHolder instanceof StatusMessageItemViewHolder messageItemViewHolder) {
-            return render(message, messageItemViewHolder);
+            render(message, messageItemViewHolder);
+            return;
         }
 
         if ((type == END || type == START)
                 && viewHolder instanceof BubbleMessageItemViewHolder messageItemViewHolder) {
-            return render(position, message, messageItemViewHolder);
+            render(position, message, messageItemViewHolder);
+            return;
         }
 
-        throw new AssertionError();
+        throw new AssertionError(
+                "No ViewHolder of type " + type + " for " + viewHolder.getClass().getSimpleName());
     }
 
-    private View render(
+    private void render(
             final int position,
             final Message message,
             final BubbleMessageItemViewHolder viewHolder) {
@@ -846,16 +883,22 @@ public class MessageAdapter extends ArrayAdapter<Message> {
 
         final boolean colorfulBackground = this.bubbleDesign.colorfulChatBubbles;
         final boolean received = message.getStatus() == Message.STATUS_RECEIVED;
-        final BubbleColor bubbleColor;
+        final BubbleColor baseColor;
         if (received) {
             if (isInValidSession) {
-                bubbleColor = colorfulBackground ? BubbleColor.SURFACE_HIGH : BubbleColor.PRIMARY;
+                baseColor = colorfulBackground ? BubbleColor.SURFACE_HIGH : BubbleColor.PRIMARY;
             } else {
-                bubbleColor = BubbleColor.WARNING;
+                baseColor = BubbleColor.WARNING;
             }
         } else {
-            bubbleColor = colorfulBackground ? BubbleColor.PRIMARY : BubbleColor.SURFACE_HIGH;
+            baseColor = colorfulBackground ? BubbleColor.PRIMARY : BubbleColor.SURFACE_HIGH;
         }
+        // A row flashed after jumping to it from a reply borrows the tertiary container colour.
+        // Overriding here rather than repainting the background afterwards keeps the text, icon
+        // and quote-span colours consistent, because all of them are derived from this value.
+        final boolean highlighted =
+                message.getUuid() != null && message.getUuid().equals(this.highlightedMessageUuid);
+        final BubbleColor bubbleColor = highlighted ? BubbleColor.TERTIARY : baseColor;
 
         final var mergeIntoTop = mergeIntoTop(position, message);
         final var mergeIntoBottom = mergeIntoBottom(position, message);
@@ -1055,10 +1098,9 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         if (mergeIntoBottom) {
             hideRepeatedGroupStatus(viewHolder);
         }
-        return viewHolder.root();
     }
 
-    private View render(
+    private void render(
             final Message message, final DateSeperatorMessageItemViewHolder viewHolder) {
         final boolean colorfulBackground = this.bubbleDesign.colorfulChatBubbles;
         if (UIHelper.today(message.getTimeSent())) {
@@ -1074,10 +1116,9 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
         setBackgroundTint(viewHolder.binding.messageBox, BubbleColor.TRANSPARENT);
         setTextColor(viewHolder.binding.messageBody, BubbleColor.TRANSPARENT);
-        return viewHolder.binding.getRoot();
     }
 
-    private View render(final Message message, final RtpSessionMessageItemViewHolder viewHolder) {
+    private void render(final Message message, final RtpSessionMessageItemViewHolder viewHolder) {
         final boolean colorfulBackground = this.bubbleDesign.colorfulChatBubbles;
         final boolean received = message.getStatus() <= Message.STATUS_RECEIVED;
         final RtpSessionStatus rtpSessionStatus = RtpSessionStatus.of(message.getBody());
@@ -1126,10 +1167,9 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         }
         viewHolder.binding.indicatorReceived.setImageResource(
                 RtpSessionStatus.getDrawable(received, rtpSessionStatus.successful));
-        return viewHolder.binding.getRoot();
     }
 
-    private View render(final Message message, final StatusMessageItemViewHolder viewHolder) {
+    private void render(final Message message, final StatusMessageItemViewHolder viewHolder) {
         final var conversation = message.getConversation();
         if ("LOAD_MORE".equals(message.getBody())) {
             viewHolder.binding.statusMessage.setVisibility(View.GONE);
@@ -1163,7 +1203,6 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                 viewHolder.binding.messagePhoto.setVisibility(View.GONE);
             }
         }
-        return viewHolder.binding.getRoot();
     }
 
     private void setAvatarDistance(
@@ -1238,6 +1277,11 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                     bottomStart,
                     bottomStart
                 });
+        // The layouts declare android:backgroundTint="?colorSurface" on message_box. That tint
+        // belongs to the View, not to the drawable, and View#setBackground re-applies it to
+        // whatever is handed over - repainting every bubble in the chat background colour and
+        // making it invisible. Clear it so the computed colour survives.
+        viewHolder.messageBox().setBackgroundTintList(null);
         viewHolder.messageBox().setBackground(background);
     }
 
@@ -1269,7 +1313,10 @@ public class MessageAdapter extends ArrayAdapter<Message> {
     }
 
     private boolean mergeIntoTop(final int position, final Message message) {
-        if (position < 0) {
+        // Guards position - 1, which is what is actually read. The previous `position < 0` check
+        // let position 0 through into getItem(-1); nothing hit it only because the list's first row
+        // is normally a date separator or the load-more notice, which never reach this path.
+        if (position <= 0) {
             return false;
         }
         final var top = getItem(position - 1);
@@ -1286,7 +1333,8 @@ public class MessageAdapter extends ArrayAdapter<Message> {
         return merge(message, bottom);
     }
 
-    private static boolean merge(final Message a, final Message b) {
+    /** Whether two adjacent messages render as one visual bubble group. */
+    public static boolean merge(final Message a, final Message b) {
         if (getItemViewType(a, false) != getItemViewType(b, false)) {
             return false;
         }
@@ -1359,13 +1407,55 @@ public class MessageAdapter extends ArrayAdapter<Message> {
 
     private void displayReplyPreview(
             final BubbleMessageItemViewHolder viewHolder, final Message message) {
-        if (message.isReply() && !Strings.isNullOrEmpty(message.getReplyPreview())) {
+        final var quoted = findQuotedMessage(message);
+        final String previewText =
+                quoted != null && !Strings.isNullOrEmpty(quoted.getBody())
+                        ? quoted.getBody().replaceAll("(?m)^> ?", "").replaceAll("\\s+", " ").trim()
+                        : message.getReplyPreview();
+        if (message.isReply() && !Strings.isNullOrEmpty(previewText)) {
             viewHolder.replyPreview().setVisibility(View.VISIBLE);
             viewHolder.replyPreviewSender().setText(getReplySender(message));
-            viewHolder.replyPreviewBody().setText(message.getReplyPreview());
+            viewHolder.replyPreviewBody().setText(previewText);
+            viewHolder.replyPreview().setClickable(true);
+            viewHolder.replyPreview().setOnClickListener(
+                    v -> {
+                        final var listener = MessageAdapter.this.mOnReplyPreviewClickedListener;
+                        if (listener != null) {
+                            listener.onReplyPreviewClicked(message);
+                        }
+                    });
         } else {
             viewHolder.replyPreview().setVisibility(View.GONE);
+            // Cleared explicitly: this row may be recycled into a message that is not a reply,
+            // where a live listener would make dead space tappable.
+            viewHolder.replyPreview().setOnClickListener(null);
+            viewHolder.replyPreview().setClickable(false);
         }
+    }
+
+    /**
+     * The message a reply is quoting, or null when it is not in the loaded range.
+     *
+     * <p>Preferred over the stored {@code replyPreview} for display. That field is only reliable
+     * for replies this device sent; for incoming ones MessageParser derives it from the incoming
+     * message's own body after stripping "&gt;" fallback markers, so when the sender omits those
+     * the "quote" ends up being a copy of the reply itself.
+     */
+    private Message findQuotedMessage(final Message reply) {
+        if (!reply.isReply()) {
+            return null;
+        }
+        final String replyId = reply.getReplyId();
+        if (Strings.isNullOrEmpty(replyId)) {
+            return null;
+        }
+        for (int i = this.messages.size() - 1; i >= 0; --i) {
+            final var candidate = this.messages.get(i);
+            if (replyId.equals(candidate.getReplyIdWireFormat())) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private String getReplySender(final Message message) {
@@ -1436,19 +1526,28 @@ public class MessageAdapter extends ArrayAdapter<Message> {
                 .show();
     }
 
-    public void updatePreferences() {
+    /** Updates bubble presentation and reports whether existing rows need rebinding. */
+    public boolean updatePreferences() {
         final AppSettings appSettings = new AppSettings(activity);
-        this.bubbleDesign =
+        final BubbleDesign updated =
                 new BubbleDesign(
                         appSettings.isColorfulChatBubbles(),
                         appSettings.isAlignStart(),
                         appSettings.isLargeFont(),
                         appSettings.isShowAvatars11(),
                         appSettings.isShowAvatarsAccounts());
+        final boolean changed = !this.bubbleDesign.sameAs(updated);
+        this.bubbleDesign = updated;
+        return changed;
     }
 
     public void setHighlightedTerm(List<String> terms) {
         this.highlightedTerm = terms == null ? null : StylingHelper.filterHighlightedWords(terms);
+    }
+
+    /** Raised when the quoted block inside a reply bubble is tapped. */
+    public interface OnReplyPreviewClicked {
+        void onReplyPreviewClicked(Message reply);
     }
 
     public interface OnContactPictureClicked {
@@ -1586,14 +1685,20 @@ public class MessageAdapter extends ArrayAdapter<Message> {
             this.showAvatars11 = showAvatars11;
             this.showAvatarsAccounts = showAvatarsAccounts;
         }
+
+        private boolean sameAs(final BubbleDesign other) {
+            return this.colorfulChatBubbles == other.colorfulChatBubbles
+                    && this.alignStart == other.alignStart
+                    && this.largeFont == other.largeFont
+                    && this.showAvatars11 == other.showAvatars11
+                    && this.showAvatarsAccounts == other.showAvatarsAccounts;
+        }
     }
 
-    private abstract static class MessageItemViewHolder /*extends RecyclerView.ViewHolder*/ {
+    public abstract static class MessageItemViewHolder extends RecyclerView.ViewHolder {
 
-        private final View itemView;
-
-        private MessageItemViewHolder(@NonNull View itemView) {
-            this.itemView = itemView;
+        private MessageItemViewHolder(@NonNull final View itemView) {
+            super(itemView);
         }
     }
 

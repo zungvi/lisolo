@@ -349,6 +349,7 @@
     <string name="error_no_keys_to_trust_presence">Il n\'y a aucune clé utilisable disponible pour ce contact.\nAssurez-vous d\'avoir un abonnement de présence mutuelle.</string>
     <string name="error_trustkeys_title">Une erreur est survenue</string>
     <string name="fetching_history_from_server">Récupération de l\'historique sur le serveur</string>
+    <string name="history_load_failed">Impossible de récupérer l\'historique des messages. Réessayez.</string>
     <string name="no_more_history_on_server">Plus d\'historique sur le serveur</string>
     <string name="updating">Mise à jour…</string>
     <string name="password_changed">Mot de passe modifié !</string>
@@ -392,6 +393,7 @@
     <string name="snooze">Répéter les notifications</string>
     <string name="reply">Répondre</string>
     <string name="mark_as_read">Marquer comme lu</string>
+    <string name="mark_as_unread">Marquer comme non lu</string>
     <string name="pref_input_options">Saisie</string>
     <string name="pref_enter_is_send">Touche Entrée pour envoyer</string>
     <string name="pref_enter_is_send_summary">Utilisez la touche Entrée pour envoyer un message. Vous pourrez toujours utiliser la combinaison Ctrl+Entrée pour envoyer un message, même si cette option est désactivée.</string>

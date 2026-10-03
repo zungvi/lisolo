@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <bool name="show_avatars_accounts">true</bool>
+    <!-- Never show your own avatar on your own messages; the side of the bubble says who sent it. -->
+    <bool name="show_avatars_accounts">false</bool>
     <bool name="last_activity">false</bool>
     <string name="app_server">zungvi.com</string>
 </resources>

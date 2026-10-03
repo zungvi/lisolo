@@ -63,3 +63,66 @@ This document tracks all tasks required to rebrand the codebase into **Zungvi Me
 ## 8. Build Verification & Testing
 - [ ] Execute `./gradlew assembleFreeDebug` and `./gradlew assemblePlaystoreDebug` to verify compilation.
 - [ ] Test standard XMPP capabilities: Auth, 1:1 & Group Chat, OMEMO (XEP-0384), HTTP File Upload (XEP-0363), Jingle Calls, and Push Notifications.
+
+---
+
+## 9. Chat Experience: Parity Gaps vs Signal / WhatsApp
+
+The chat screen is now **correct** — bubbles render, sent messages appear
+immediately, the list opens on the newest message, the composer clears the
+navigation bar and the keyboard. "Correct" is the floor Signal starts from, not
+where it sits. What follows is features, not polish; each is real work.
+
+### 9.1 Verify before building anything else
+- [ ] **Long-press on a message.** Never exercised. `adb` cannot synthesise a
+      long-press this view accepts, and `ContextMenuRecyclerView` is new code
+      replacing the `AdapterContextMenuInfo` casts that RecyclerView would have
+      thrown on. If broken, copy / quote / reply / delete are all gone.
+- [ ] **Keyboard behaviour on real hardware.** The emulator has a hardware
+      keyboard attached and never shows a soft one, so no IME insets are ever
+      dispatched and that path has only ever been tested by proxy (rotation).
+- [ ] **Account switcher.** Needs two accounts on one device; it stays hidden
+      below two, so it has never rendered.
+
+### 9.2 Missing features
+> Corrected after a second pass: the first audit here used case-sensitive
+> patterns and under-reported what already exists. Typing indicators and audio
+> scrubbing were both wrongly listed as missing.
+
+- [x] ~~Typing indicators.~~ **Already implemented.** `updateStatusMessages()`
+      renders "X is typing…" as a status row for 1:1 chats from
+      `ChatStateManager.getIncoming()`, and for group chats from the per-user
+      chat state, including the plural "X and Y are typing…" form and the
+      "stopped typing" variants.
+- [ ] **Jump to quoted message.** Tapping a reply quote does nothing. Both apps
+      scroll to the original and flash it.
+- [ ] **Multi-select.** No action-mode selection. Signal lets you select several
+      messages to forward or delete; here it is one-at-a-time via the context
+      menu.
+- [ ] **Link previews.** No Open Graph fetching. Every modern messenger has them.
+- [ ] **Voice note waveforms.** Scrubbing *does* work — `item_message_content`
+      has a `SeekBar` wired to `AudioPlayer.seekTo()`. What is missing is only
+      the waveform rendering that Signal and WhatsApp draw behind it.
+
+### 9.3 Known trade-off, deliberately taken
+- [ ] **`areContentsTheSame` always returns `false`**, so every visible row
+      rebinds on every update. Correctness was chosen over efficiency because
+      `Message` is mutable and there was no cheap way to detect real changes.
+      Signal does proper payload diffing. On long conversations on a mid-range
+      phone this will show.
+
+### 9.4 Suggested order
+1. Long-press verification — a bug check, and the highest risk
+2. Jump to quoted message — self-contained, no new infrastructure
+3. Multi-select — the largest genuine gap in day-to-day use
+4. Voice note waveforms — presentation only; playback and seeking already work
+5. Link previews — weigh first: fetching Open Graph data means the client
+   requests arbitrary third-party URLs, which leaks IP and metadata. That is a
+   product decision for a privacy-focused messenger, not just an implementation
+   task. Signal does it deliberately and carefully.
+
+### 9.5 Confidence note
+The scroll bug in this area was diagnosed wrong three times, and two of those
+"fixes" made it worse. Each was caught only by testing on real hardware. Treat
+anything marked verified as *verified on an emulator that cannot show a
+keyboard*; a physical device is the real gate.

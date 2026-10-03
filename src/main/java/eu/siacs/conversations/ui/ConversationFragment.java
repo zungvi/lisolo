@@ -45,17 +45,13 @@ import android.view.View.OnClickListener;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.AbsListView;
-import android.widget.AbsListView.OnScrollListener;
-import android.widget.AdapterView;
-import android.widget.AdapterView.AdapterContextMenuInfo;
 import android.widget.CheckBox;
-import android.widget.ListView;
 import android.widget.PopupMenu;
 import android.widget.TextView.OnEditorActionListener;
 import android.widget.Toast;
 import androidx.annotation.IdRes;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
@@ -65,6 +61,7 @@ import androidx.databinding.DataBindingUtil;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 import androidx.lifecycle.Lifecycle;
+import com.google.android.material.transition.MaterialSharedAxis;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
@@ -100,13 +97,15 @@ import eu.siacs.conversations.services.CallIntegrationConnectionService;
 import eu.siacs.conversations.services.QuickConversationsService;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.ui.adapter.MediaPreviewAdapter;
+import androidx.recyclerview.widget.DiffUtil;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 import eu.siacs.conversations.ui.adapter.MessageAdapter;
 import eu.siacs.conversations.ui.util.ActivityResult;
 import eu.siacs.conversations.ui.util.Attachment;
 import eu.siacs.conversations.ui.util.ConversationMenuConfigurator;
 import eu.siacs.conversations.ui.util.DateSeparator;
 import eu.siacs.conversations.ui.util.EditMessageActionModeCallback;
-import eu.siacs.conversations.ui.util.ListViewUtils;
 import eu.siacs.conversations.ui.util.MenuDoubleTabUtil;
 import eu.siacs.conversations.ui.util.MucDetailsContextMenuHelper;
 import eu.siacs.conversations.ui.util.PendingItem;
@@ -116,6 +115,8 @@ import eu.siacs.conversations.ui.util.SendButtonAction;
 import eu.siacs.conversations.ui.util.SendButtonTool;
 import eu.siacs.conversations.ui.util.ShareUtil;
 import eu.siacs.conversations.ui.util.ViewUtil;
+import eu.siacs.conversations.ui.widget.ContextMenuRecyclerView;
+import eu.siacs.conversations.ui.widget.ConversationLayoutManager;
 import eu.siacs.conversations.ui.widget.EditMessage;
 import eu.siacs.conversations.utils.AccountUtils;
 import eu.siacs.conversations.utils.CharSequences;
@@ -153,9 +154,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -211,6 +214,38 @@ public class ConversationFragment extends XmppFragment
     private final MediaPreviewAdapter mediaPreviewAdapter = new MediaPreviewAdapter(this);
     public Uri mPendingEditorContent = null;
     protected MessageAdapter messageListAdapter;
+    private LinearLayoutManager messagesLayoutManager;
+
+
+    /**
+     * The immutable row states the adapter has actually been notified about.
+     *
+     * <p>This has to be a field rather than a value captured at each call site. A dispatch made
+     * during a layout pass has to be retried later, and by then messageList may have been refilled
+     * again; diffing against a baseline captured before the retry told the adapter about changes it
+     * had already been told about, leaving RecyclerView's item count out of step with the list. The
+     * visible symptom was a sent message not appearing until the chat was closed and reopened,
+     * which rebuilt the adapter from scratch.
+     */
+    private List<MessageRowSnapshot> dispatchedMessageRows = Collections.emptyList();
+
+    /** Whether new or resized rows should remain attached to the composer's top edge. */
+    private boolean followingNewest = true;
+
+    /** Distinguishes a user's drag from layout-manager and adapter scrolls. */
+    private boolean userScrollInProgress = false;
+
+    /** Prevents repeated empty archive requests during a single drag against the top edge. */
+    private boolean historyRequestedInCurrentGesture = false;
+
+    /** An opening attempt stays pending until the account and archive discovery are ready. */
+    private boolean initialHistoryRequested = false;
+
+    /** Forces a rebind when presentation preferences change without message data changing. */
+    private int messageRenderGeneration = 0;
+
+    /** How long a row stays recoloured after jumping to it from a reply. */
+    private static final long MESSAGE_FLASH_DURATION_MS = 1200L;
     private String lastMessageUuid = null;
     private Conversation conversation;
     private FragmentConversationBinding binding;
@@ -218,7 +253,7 @@ public class ConversationFragment extends XmppFragment
     private boolean reInitRequiredOnStart = true;
     private float messageSwipeStartX = 0f;
     private float messageSwipeStartY = 0f;
-    private int messageSwipeStartPosition = AdapterView.INVALID_POSITION;
+    private int messageSwipeStartPosition = RecyclerView.NO_POSITION;
     private boolean messageSwipeHandled = false;
     private Message replyToMessage = null;
     private final OnClickListener clickToMuc =
@@ -282,17 +317,24 @@ public class ConversationFragment extends XmppFragment
             new XmppConnectionService.OnMoreMessagesLoaded() {
                 @Override
                 public void onMoreMessagesLoaded(final int c, final Conversation conversation) {
+                    conversation.messagesLoaded.set(true);
                     if (ConversationFragment.this.conversation != conversation) {
-                        conversation.messagesLoaded.set(true);
                         return;
                     }
-                    runOnUiThreadQuiet(() -> onMoreMessagesLoaded(conversation));
-                }
-
-                private void onMoreMessagesLoaded(final Conversation conversation) {
-                    synchronized (messageList) {
-                        onMoreMessagesLoadedImpl(conversation);
-                    }
+                    runOnUiThreadQuiet(
+                            () -> {
+                                conversation.messagesLoaded.set(true);
+                                if (ConversationFragment.this.conversation != conversation
+                                        || binding == null) {
+                                    return;
+                                }
+                                if (c > 0) {
+                                    historyRequestedInCurrentGesture = false;
+                                }
+                                synchronized (messageList) {
+                                    onMoreMessagesLoadedImpl(conversation);
+                                }
+                            });
                 }
 
                 @Override
@@ -310,27 +352,9 @@ public class ConversationFragment extends XmppFragment
     }
 
     private void onMoreMessagesLoadedImpl(final Conversation conversation) {
-        final int oldPosition = binding.messagesView.getFirstVisiblePosition();
-        Message message = null;
-        int childPos;
-        for (childPos = 0; childPos + oldPosition < messageList.size(); ++childPos) {
-            message = messageList.get(oldPosition + childPos);
-            if (message.getType() != Message.TYPE_STATUS) {
-                break;
-            }
-        }
-        final String uuid = message != null ? message.getUuid() : null;
-        final View v = binding.messagesView.getChildAt(childPos);
-        final int pxOffset = (v == null) ? 0 : v.getTop();
-        this.conversation.populateWithMessages(this.messageList);
-        try {
-            updateStatusMessages();
-        } catch (final IllegalStateException e) {
-            Log.d(Config.LOGTAG, "could not update status messages");
-        }
-        messageListAdapter.notifyDataSetChanged();
-        int pos = Math.max(getIndexOf(uuid, messageList), 0);
-        binding.messagesView.setSelectionFromTop(pos, pxOffset);
+        // The diff owns viewport preservation. Repositioning again here used a stale list index
+        // and could override a drag performed while the server was answering.
+        refillMessageList(() -> conversation.populateWithMessages(this.messageList));
         if (messageLoaderToast != null) {
             messageLoaderToast.cancel();
         }
@@ -345,41 +369,31 @@ public class ConversationFragment extends XmppFragment
         messageLoaderToast.show();
     }
 
-    private final OnScrollListener mOnScrollListener =
-            new OnScrollListener() {
+    private final RecyclerView.OnScrollListener mOnScrollListener =
+            new RecyclerView.OnScrollListener() {
 
                 @Override
-                public void onScrollStateChanged(AbsListView view, int scrollState) {
-                    if (AbsListView.OnScrollListener.SCROLL_STATE_IDLE == scrollState) {
+                public void onScrollStateChanged(
+                        @NonNull final RecyclerView view, final int scrollState) {
+                    if (RecyclerView.SCROLL_STATE_DRAGGING == scrollState) {
+                        ConversationFragment.this.userScrollInProgress = true;
+                        // A user's drag always takes ownership away from automatic following.
+                        ConversationFragment.this.followingNewest = false;
+                    }
+                    if (RecyclerView.SCROLL_STATE_IDLE == scrollState) {
+                        if (ConversationFragment.this.userScrollInProgress) {
+                            ConversationFragment.this.userScrollInProgress = false;
+                            ConversationFragment.this.followingNewest = scrolledToBottom(view);
+                        }
                         fireReadEvent();
                     }
                 }
 
                 @Override
-                public void onScroll(
-                        final AbsListView view,
-                        int firstVisibleItem,
-                        int visibleItemCount,
-                        int totalItemCount) {
-                    toggleScrollDownButton(view);
-                    synchronized (ConversationFragment.this.messageList) {
-                        if (firstVisibleItem < 5
-                                && conversation != null
-                                && conversation.messagesLoaded.compareAndSet(true, false)
-                                && !messageList.isEmpty()) {
-                            long timestamp;
-                            if (messageList.get(0).getType() == Message.TYPE_STATUS
-                                    && messageList.size() >= 2) {
-                                timestamp = messageList.get(1).getTimeSent();
-                            } else {
-                                timestamp = messageList.get(0).getTimeSent();
-                            }
-                            requireXmppActivity()
-                                    .xmppConnectionService
-                                    .loadMoreMessages(
-                                            conversation, timestamp, onMoreMessagesLoaded);
-                        }
-                    }
+                public void onScrolled(
+                        @NonNull final RecyclerView view, final int dx, final int dy) {
+                    toggleScrollDownButton();
+                    maybeLoadMoreMessages(dy);
                 }
             };
     private final EditMessage.OnCommitContentListener mEditorContentListener =
@@ -520,7 +534,7 @@ public class ConversationFragment extends XmppFragment
                 @Override
                 public void onClick(View v) {
                     stopScrolling();
-                    setSelection(binding.messagesView.getCount() - 1, true);
+                    setSelection(messageListAdapter.getItemCount() - 1, true);
                 }
             };
     private final OnClickListener mSendButtonListener =
@@ -577,6 +591,7 @@ public class ConversationFragment extends XmppFragment
                     final MenuItem menuOngoingCall = menu.findItem(R.id.action_ongoing_call);
                     final MenuItem menuVideoCall = menu.findItem(R.id.action_video_call);
                     final MenuItem menuTogglePinned = menu.findItem(R.id.action_toggle_pinned);
+                    final MenuItem menuMarkUnread = menu.findItem(R.id.action_mark_as_unread);
                     final var c = ConversationFragment.this.conversation;
                     if (c == null) {
                         return;
@@ -632,6 +647,7 @@ public class ConversationFragment extends XmppFragment
                     } else {
                         menuTogglePinned.setTitle(R.string.add_to_favorites);
                     }
+                    menuMarkUnread.setVisible(c.isRead());
                 }
 
                 @Override
@@ -662,6 +678,15 @@ public class ConversationFragment extends XmppFragment
                             requireXmppActivity()
                                     .xmppConnectionService
                                     .archiveConversation(conversation);
+                            break;
+                        case R.id.action_mark_as_unread:
+                            if (requireXmppActivity()
+                                    .xmppConnectionService
+                                    .markConversationUnread(conversation)) {
+                                // Leaving the visible thread prevents a scheduled read callback
+                                // from immediately undoing this local-only marker.
+                                requireConversationsActivity().onConversationArchived(conversation);
+                            }
                             break;
                         case R.id.action_contact_details:
                             requireXmppActivity().switchToContactDetails(conversation.getContact());
@@ -793,27 +818,123 @@ public class ConversationFragment extends XmppFragment
         return getConversation(activity, R.id.main_fragment);
     }
 
-    private static boolean scrolledToBottom(AbsListView listView) {
-        final int count = listView.getCount();
+    /** Pages older messages during a user's upward scroll, never during an adapter correction. */
+    private void maybeLoadMoreMessages(final int dy) {
+        if (!this.userScrollInProgress || dy >= 0) {
+            return;
+        }
+        requestOlderMessages();
+    }
+
+    private void requestOlderMessages() {
+        final int firstVisibleItem = firstVisiblePosition();
+        synchronized (this.messageList) {
+            if (firstVisibleItem >= 0
+                    && firstVisibleItem < 5
+                    && conversation != null
+                    && !this.historyRequestedInCurrentGesture
+                    && !messageList.isEmpty()
+                    && conversation.messagesLoaded.compareAndSet(true, false)) {
+                this.historyRequestedInCurrentGesture = true;
+                requireXmppActivity()
+                        .xmppConnectionService
+                        .loadMoreMessages(
+                                conversation, oldestMessageTimestamp(), onMoreMessagesLoaded);
+            }
+        }
+    }
+
+    private long oldestMessageTimestamp() {
+        for (final Message message : this.messageList) {
+            if (message.getType() != Message.TYPE_STATUS && message.getTimeSent() > 0) {
+                return message.getTimeSent();
+            }
+        }
+        return System.currentTimeMillis();
+    }
+
+    /**
+     * Fills the first local page from the archive when opening a sparsely populated conversation.
+     *
+     * <p>On a new device there may be zero or only a handful of recent messages. Such a list is too
+     * short to drag upward, so the normal scroll-triggered pager can never run. If a catch-up query
+     * is active it must not consume this older-history request. Only an existing full-history
+     * query can satisfy it. Refreshes retry availability checks, not completed or failed requests.
+     */
+    private void maybeLoadInitialHistory() {
+        final Conversation current = this.conversation;
+        if (current == null
+                || this.initialHistoryRequested
+                || current.countMessages() >= Config.PAGE_SIZE
+                || !current.hasMessagesLeftOnServer()
+                || !current.getAccount().isOnlineAndConnected()
+                || current.isBlocked()
+                || !hasMamSupport(current)
+                || !current.messagesLoaded.compareAndSet(true, false)) {
+            return;
+        }
+        this.initialHistoryRequested = true;
+        requireXmppActivity()
+                .xmppConnectionService
+                .loadMoreMessages(current, oldestMessageTimestamp(), onMoreMessagesLoaded);
+    }
+
+    /** {@link RecyclerView#NO_POSITION} when the list has no laid-out children yet. */
+    private int firstVisiblePosition() {
+        final var layoutManager = this.messagesLayoutManager;
+        return layoutManager == null
+                ? RecyclerView.NO_POSITION
+                : layoutManager.findFirstVisibleItemPosition();
+    }
+
+    /** {@link RecyclerView#NO_POSITION} when the list has no laid-out children yet. */
+    private int lastVisiblePosition() {
+        final var layoutManager = this.messagesLayoutManager;
+        return layoutManager == null
+                ? RecyclerView.NO_POSITION
+                : layoutManager.findLastVisibleItemPosition();
+    }
+
+    /** Places {@code position} with its top {@code offsetFromTop} pixels below the viewport top. */
+    private void scrollToPositionWithOffset(final int position, final int offsetFromTop) {
+        final var layoutManager = this.messagesLayoutManager;
+        if (layoutManager != null) {
+            layoutManager.scrollToPositionWithOffset(position, offsetFromTop);
+        }
+    }
+
+    private boolean scrolledToBottom(final RecyclerView recyclerView) {
+        final int count = messageListAdapter == null ? 0 : messageListAdapter.getItemCount();
         if (count == 0) {
             return true;
-        } else if (listView.getLastVisiblePosition() == count - 1) {
-            final View lastChild = listView.getChildAt(listView.getChildCount() - 1);
-            return lastChild != null && lastChild.getBottom() <= listView.getHeight();
-        } else {
+        }
+        final var layoutManager = this.messagesLayoutManager;
+        if (layoutManager == null) {
+            return true;
+        }
+        if (layoutManager.findLastVisibleItemPosition() != count - 1) {
             return false;
         }
+        final var lastChild = recyclerView.getChildAt(recyclerView.getChildCount() - 1);
+        // Measured against the padded height so this stays correct if the list is ever given bottom
+        // padding; today the composer below it carries the navigation-bar inset instead.
+        return lastChild != null
+                && lastChild.getBottom()
+                        <= recyclerView.getHeight() - recyclerView.getPaddingBottom();
     }
 
     private void toggleScrollDownButton() {
-        toggleScrollDownButton(binding.messagesView);
+        if (this.binding == null) {
+            return;
+        }
+        toggleScrollDownButton(this.binding.messagesView);
     }
 
-    private void toggleScrollDownButton(AbsListView listView) {
+    private void toggleScrollDownButton(final RecyclerView recyclerView) {
         if (conversation == null) {
             return;
         }
-        if (scrolledToBottom(listView)) {
+        if (scrolledToBottom(recyclerView)) {
             lastMessageUuid = null;
             hideUnreadMessagesCount();
         } else {
@@ -841,33 +962,33 @@ public class ConversationFragment extends XmppFragment
     }
 
     private ScrollState getScrollPosition() {
-        final ListView listView = this.binding == null ? null : this.binding.messagesView;
-        if (listView == null
-                || listView.getCount() == 0
-                || listView.getLastVisiblePosition() == listView.getCount() - 1) {
+        final var recyclerView = this.binding == null ? null : this.binding.messagesView;
+        final int count = messageListAdapter == null ? 0 : messageListAdapter.getItemCount();
+        if (recyclerView == null || count == 0 || scrolledToBottom(recyclerView)) {
             return null;
-        } else {
-            final int pos = listView.getFirstVisiblePosition();
-            final View view = listView.getChildAt(0);
-            if (view == null) {
-                return null;
-            } else {
-                return new ScrollState(pos, view.getTop());
-            }
         }
+        final int pos = firstVisiblePosition();
+        final View view =
+                this.messagesLayoutManager == null
+                        ? null
+                        : this.messagesLayoutManager.findViewByPosition(pos);
+        if (pos == RecyclerView.NO_POSITION || view == null) {
+            return null;
+        }
+        return new ScrollState(pos, this.messagesLayoutManager.getDecoratedTop(view));
     }
 
     private void setScrollPosition(ScrollState scrollPosition, String lastMessageUuid) {
         if (scrollPosition != null) {
-
+            // A saved position exists only when the user was reading history. Record that intent
+            // before restoring it so the following layout cannot pull them to the newest message.
+            this.followingNewest = false;
             this.lastMessageUuid = lastMessageUuid;
             if (lastMessageUuid != null) {
                 binding.unreadCountCustomView.setUnreadCount(
                         conversation.getReceivedMessagesCountSinceUuid(lastMessageUuid));
             }
-            // TODO maybe this needs a 'post'
-            this.binding.messagesView.setSelectionFromTop(
-                    scrollPosition.position, scrollPosition.offset);
+            scrollToPositionWithOffset(scrollPosition.position, scrollPosition.offset);
             toggleScrollDownButton();
         }
     }
@@ -1247,6 +1368,15 @@ public class ConversationFragment extends XmppFragment
     }
 
     @Override
+    public void onCreate(@Nullable final Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        // Opening a chat is forward navigation; going back reverses the same shared axis. Set on
+        // the fragment rather than the transaction so the back stack pops with the right direction.
+        setEnterTransition(new MaterialSharedAxis(MaterialSharedAxis.X, true));
+        setReturnTransition(new MaterialSharedAxis(MaterialSharedAxis.X, false));
+    }
+
+    @Override
     public View onCreateView(
             @NonNull final LayoutInflater inflater,
             final ViewGroup container,
@@ -1265,16 +1395,33 @@ public class ConversationFragment extends XmppFragment
         binding.replyPreviewClose.setOnClickListener(v -> clearReplyToMessage());
 
         binding.scrollToBottomButton.setOnClickListener(this.mScrollButtonListener);
-        binding.messagesView.setOnScrollListener(mOnScrollListener);
+        // stackFromEnd, not reverseLayout: the list stays oldest-first, so every position in this
+        // fragment keeps indexing messageList directly, while the content still sits at the bottom
+        // the way the old ListView's stackFromBottom did.
+        this.messagesLayoutManager = new ConversationLayoutManager(requireContext());
+        binding.messagesView.setLayoutManager(this.messagesLayoutManager);
+        binding.messagesView.addOnScrollListener(mOnScrollListener);
+        binding.messagesView.addOnLayoutChangeListener(
+                (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
+                        toggleScrollDownButton());
         binding.messagesView.setOnTouchListener(this::onMessagesTouch);
-        binding.messagesView.setTranscriptMode(ListView.TRANSCRIPT_MODE_NORMAL);
         binding.mediaPreview.setAdapter(mediaPreviewAdapter);
         messageListAdapter = new MessageAdapter((XmppActivity) getActivity(), this.messageList);
         messageListAdapter.setOnContactPictureClicked(this);
         messageListAdapter.setOnContactPictureLongClicked(this);
+        messageListAdapter.setOnReplyPreviewClicked(this::jumpToQuotedMessage);
         binding.messagesView.setAdapter(messageListAdapter);
+        // A fresh adapter starts out believing exactly what messageList holds right now, so the
+        // baseline has to agree. Without this a view recreated over a non-empty list - after a
+        // rotation, say - would diff against keys from the previous adapter.
+        this.dispatchedMessageRows = snapshotMessageRows();
+        // RecyclerView's move/add animations translate existing bubbles while receipts, edits and
+        // archive pages are being applied. A chat timeline should keep those rows spatially fixed.
+        binding.messagesView.setItemAnimator(null);
 
         registerForContextMenu(binding.messagesView);
+
+        Activities.applyBottomMarginInsetWithIme(binding.textsend);
 
         this.binding.textinput.setCustomInsertionActionModeCallback(
                 new EditMessageActionModeCallback(this.binding.textinput));
@@ -1365,28 +1512,35 @@ public class ConversationFragment extends XmppFragment
     private boolean onMessagesTouch(final View view, final MotionEvent event) {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN -> {
+                historyRequestedInCurrentGesture = false;
                 messageSwipeStartX = event.getX();
                 messageSwipeStartY = event.getY();
-                messageSwipeStartPosition =
-                        binding.messagesView.pointToPosition(
-                                Math.round(messageSwipeStartX), Math.round(messageSwipeStartY));
+                messageSwipeStartPosition = positionUnder(messageSwipeStartX, messageSwipeStartY);
                 messageSwipeHandled = false;
             }
             case MotionEvent.ACTION_MOVE -> {
-                if (messageSwipeHandled
-                        || messageSwipeStartPosition == AdapterView.INVALID_POSITION) {
+                if (messageSwipeHandled) {
                     break;
                 }
                 final float deltaX = event.getX() - messageSwipeStartX;
                 final float deltaY = event.getY() - messageSwipeStartY;
                 final int touchSlop = ViewConfiguration.get(view.getContext()).getScaledTouchSlop();
-                if (Math.abs(deltaX) > touchSlop * 4 && Math.abs(deltaX) > Math.abs(deltaY) * 2) {
+                // At the absolute top (or when a short chat fits on screen) RecyclerView cannot
+                // consume an upward scroll, so onScrolled never reports a negative delta. The
+                // finger gesture must still be able to request the next page.
+                if (deltaY > touchSlop && Math.abs(deltaY) > Math.abs(deltaX)) {
+                    followingNewest = false;
+                    requestOlderMessages();
+                }
+                if (messageSwipeStartPosition != RecyclerView.NO_POSITION
+                        && Math.abs(deltaX) > touchSlop * 4
+                        && Math.abs(deltaX) > Math.abs(deltaY) * 2) {
                     maybeReplyToSwipedMessage(messageSwipeStartPosition);
                     messageSwipeHandled = true;
                 }
             }
             case MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                messageSwipeStartPosition = AdapterView.INVALID_POSITION;
+                messageSwipeStartPosition = RecyclerView.NO_POSITION;
                 messageSwipeHandled = false;
             }
             default -> {}
@@ -1418,8 +1572,16 @@ public class ConversationFragment extends XmppFragment
         v.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_CANCEL, 0f, 0f, 0));
         synchronized (this.messageList) {
             super.onCreateContextMenu(menu, v, menuInfo);
-            AdapterView.AdapterContextMenuInfo acmi = (AdapterContextMenuInfo) menuInfo;
-            this.selectedMessage = this.messageList.get(acmi.position);
+            if (!(menuInfo
+                    instanceof
+                    ContextMenuRecyclerView.RecyclerViewContextMenuInfo recyclerViewInfo)) {
+                return;
+            }
+            final int position = recyclerViewInfo.position;
+            if (position < 0 || position >= this.messageList.size()) {
+                return;
+            }
+            this.selectedMessage = this.messageList.get(position);
             populateContextMenu(menu);
         }
     }
@@ -2280,12 +2442,12 @@ public class ConversationFragment extends XmppFragment
             return null;
         }
         synchronized (this.messageList) {
-            int pos = binding.messagesView.getLastVisiblePosition();
+            int pos = lastVisiblePosition();
             if (pos >= 0) {
                 Message message = null;
                 for (int i = pos; i >= 0; --i) {
                     try {
-                        message = (Message) binding.messagesView.getItemAtPosition(i);
+                        message = this.messageList.get(i);
                     } catch (IndexOutOfBoundsException e) {
                         // should not happen if we synchronize properly. however if that fails we
                         // just gonna try item -1
@@ -2455,13 +2617,7 @@ public class ConversationFragment extends XmppFragment
                                         requireXmppActivity()
                                                 .xmppConnectionService
                                                 .resendFailedMessages(message, forceP2P);
-                                        new Handler()
-                                                .post(
-                                                        () -> {
-                                                            int size = messageList.size();
-                                                            this.binding.messagesView.setSelection(
-                                                                    size - 1);
-                                                        });
+                                        scrollToNewest();
                                     });
                     return;
                 }
@@ -2479,12 +2635,7 @@ public class ConversationFragment extends XmppFragment
             }
         }
         requireXmppActivity().xmppConnectionService.resendFailedMessages(message, false);
-        new Handler()
-                .post(
-                        () -> {
-                            int size = messageList.size();
-                            this.binding.messagesView.setSelection(size - 1);
-                        });
+        scrollToNewest();
     }
 
     private void cancelTransmission(Message message) {
@@ -2697,7 +2848,14 @@ public class ConversationFragment extends XmppFragment
         if (conversation == null) {
             return false;
         }
+        final boolean conversationChanged = this.conversation != conversation;
         this.conversation = conversation;
+        if (conversationChanged) {
+            this.followingNewest = true;
+            this.userScrollInProgress = false;
+            this.historyRequestedInCurrentGesture = false;
+            this.initialHistoryRequested = false;
+        }
         // once we set the conversation all is good and it will automatically do the right thing in
         // onStart()
         if (this.binding == null) {
@@ -2737,13 +2895,15 @@ public class ConversationFragment extends XmppFragment
             this.binding.textinput.setText(MessageUtils.EMPTY_STRING);
         }
         this.binding.textinput.setKeyboardListener(this);
-        messageListAdapter.updatePreferences();
+        if (messageListAdapter.updatePreferences()) {
+            ++this.messageRenderGeneration;
+        }
         refresh(false);
         requireXmppActivity().invalidateOptionsMenu();
         this.conversation.messagesLoaded.set(true);
         Log.d(Config.LOGTAG, "scrolledToBottomAndNoPending=" + scrolledToBottomAndNoPending);
 
-        if (hasExtras || scrolledToBottomAndNoPending) {
+        if (conversationChanged || hasExtras || scrolledToBottomAndNoPending) {
             resetUnreadMessagesCount();
             synchronized (this.messageList) {
                 Log.d(Config.LOGTAG, "jump to first unread message");
@@ -2762,6 +2922,8 @@ public class ConversationFragment extends XmppFragment
                 setSelection(pos, jumpToBottom);
             }
         }
+
+        maybeLoadInitialHistory();
 
         this.binding.messagesView.post(this::fireReadEvent);
         // TODO if we only do this when this fragment is running on main it won't *bing* in tablet
@@ -2787,11 +2949,432 @@ public class ConversationFragment extends XmppFragment
         this.binding.unreadCountCustomView.setVisibility(View.GONE);
     }
 
-    private void setSelection(int pos, boolean jumpToBottom) {
-        ListViewUtils.setSelection(this.binding.messagesView, pos, jumpToBottom);
-        this.binding.messagesView.post(
-                () -> ListViewUtils.setSelection(this.binding.messagesView, pos, jumpToBottom));
+    /**
+     * Identity of a row for diffing purposes. Date separators and chat-state notices are built in
+     * memory and have no uuid, so they are keyed by what actually distinguishes them.
+     */
+    private static String diffKey(final Message message) {
+        final String uuid = message.getUuid();
+        if (uuid != null) {
+            return "u:" + uuid;
+        }
+        return "s:" + message.getType() + ':' + message.getBody() + ':' + message.getTimeSent();
+    }
+
+    /** Immutable render state for one adapter row. */
+    private static final class MessageRowSnapshot {
+        private final String key;
+        private final String content;
+
+        private MessageRowSnapshot(final String key, final String content) {
+            this.key = key;
+            this.content = content;
+        }
+    }
+
+    /** Rows backed by actual messages rather than date, load-more or read-marker rows. */
+    private static int realMessageCount(final List<MessageRowSnapshot> rows) {
+        int count = 0;
+        for (final MessageRowSnapshot row : rows) {
+            if (row.key.startsWith("u:")) {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    @Nullable
+    private static String lastRealMessageKey(final List<MessageRowSnapshot> rows) {
+        for (int i = rows.size() - 1; i >= 0; --i) {
+            final String key = rows.get(i).key;
+            if (key.startsWith("u:")) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    private static void appendState(final StringBuilder builder, final Object value) {
+        final String text = String.valueOf(value);
+        builder.append(text.length()).append(':').append(text).append(';');
+    }
+
+    private static void appendUserAvatarState(
+            final StringBuilder state, final MucOptions.User user) {
+        appendState(state, user.getFullJid());
+        appendState(state, user.getRealJid());
+        appendState(state, user.getOccupantId());
+        appendState(state, user.getDisplayName());
+        appendState(state, user.getAvatar());
+    }
+
+    /** Status rows render text and, only for read markers, an avatar; they have no sender. */
+    private static void appendStatusAvatarState(final StringBuilder state, final Message message) {
+        if (MessageAdapter.DATE_SEPARATOR_BODY.equals(message.getBody())
+                || "LOAD_MORE".equals(message.getBody())) {
+            return;
+        }
+        final List<MucOptions.User> counterparts = message.getCounterparts();
+        if (counterparts != null && counterparts.size() > 1) {
+            for (final MucOptions.User user : counterparts) {
+                appendUserAvatarState(state, user);
+            }
+            return;
+        }
+        final Conversational conversational = message.getConversation();
+        if (conversational.getMode() == Conversation.MODE_SINGLE) {
+            final Contact contact = conversational.getContact();
+            appendState(state, contact.getDisplayName());
+            appendState(state, contact.getAvatar());
+        } else if (conversational instanceof Conversation concrete
+                && (message.getCounterpart() != null || message.getTrueCounterpart() != null)) {
+            appendUserAvatarState(state, concrete.getMucOptions().getUserOrStub(message));
+        }
+    }
+
+    /** Captures every mutable value used while binding a message row. */
+    private String messageContentState(final Message message) {
+        final StringBuilder state = new StringBuilder();
+        appendState(state, this.messageRenderGeneration);
+        // Keep this list restricted to values that MessageAdapter actually renders. Database-only
+        // changes such as read markers must not rebind a bubble or trigger another layout pass.
+        appendState(state, message.getBody());
+        appendState(state, message.getTimeSent());
+        appendState(state, message.getEncryption());
+        appendState(state, message.getStatus());
+        appendState(state, message.getType());
+        if (message.getType() == Message.TYPE_STATUS) {
+            // Date/load-more rows have no participant, and multi-reader rows have several, not
+            // one sender. Looking up a fictitious sender creates an addressless MUC stub and
+            // crashes in User#getDisplayName. Snapshot only what the status renderer consumes.
+            appendStatusAvatarState(state, message);
+            return state.toString();
+        }
+        appendState(state, message.isCarbon());
+        appendState(state, message.getBodyLanguage());
+        appendState(state, message.edited());
+        appendState(state, message.getErrorMessage());
+        appendState(state, message.isDeleted());
+        appendState(state, message.getRelativeFilePath());
+        appendState(state, message.getFingerprint());
+        appendState(state, message.isOOb());
+        appendState(state, message.getCounterpart());
+        appendState(state, message.getTrueCounterpart());
+        appendState(state, message.getOccupantId());
+        appendState(state, message.getReactions());
+        appendState(state, message.getReplyTo());
+        appendState(state, message.getReplyId());
+        appendState(state, message.getReplyPreview());
+
+        final Transferable transferable = message.getTransferable();
+        if (transferable == null) {
+            appendState(state, null);
+        } else {
+            appendState(state, transferable.getClass().getName());
+            appendState(state, transferable.getStatus());
+            appendState(state, transferable.getProgress());
+            appendState(state, transferable.getFileSize());
+        }
+
+        final Message.FileParams file = message.getFileParams();
+        appendState(state, file.url);
+        appendState(state, file.size);
+        appendState(state, file.width);
+        appendState(state, file.height);
+        appendState(state, file.runtime);
+        appendState(state, message.isTrusted());
+        appendState(state, message.isValidInSession());
+        appendState(state, UIHelper.getMessageDisplayName(message));
+
+        final Contact contact = message.getContact();
+        if (contact != null) {
+            appendState(state, contact.getDisplayName());
+            appendState(state, contact.getAvatar());
+        }
+        final Conversational conversational = message.getConversation();
+        appendState(state, conversational.getMode());
+        appendState(state, conversational.getAccount().getStatus());
+        appendState(state, conversational.getAccount().getAvatar());
+        appendState(state, conversational.getAccount().isPgpDecryptionServiceConnected());
+        if (conversational instanceof Conversation concrete) {
+            appendState(state, concrete.getAccount().hasPendingPgpIntent(concrete));
+            if (concrete.getMode() == Conversation.MODE_MULTI) {
+                appendState(state, concrete.getMucOptions().getActualNick());
+                final MucOptions.User user = concrete.getMucOptions().getUserOrStub(message);
+                appendState(state, user.getDisplayName());
+                appendState(state, user.getAvatar());
+            }
+        }
+        appendState(state, message.getCounterparts());
+        return state.toString();
+    }
+
+    private List<MessageRowSnapshot> snapshotMessageRows() {
+        final int size = this.messageList.size();
+        final List<String> baseStates = new ArrayList<>(size);
+        final Map<String, String> replyTargets = new HashMap<>();
+        for (final Message message : this.messageList) {
+            final String base = messageContentState(message);
+            baseStates.add(base);
+            final String replyId = message.getReplyIdWireFormat();
+            if (replyId != null) {
+                replyTargets.put(replyId, base);
+            }
+        }
+
+        final List<MessageRowSnapshot> rows = new ArrayList<>(size);
+        for (int i = 0; i < size; ++i) {
+            final Message message = this.messageList.get(i);
+            final StringBuilder content = new StringBuilder(baseStates.get(i));
+            appendState(
+                    content,
+                    i > 0 && MessageAdapter.merge(this.messageList.get(i - 1), message));
+            appendState(
+                    content,
+                    i + 1 < size && MessageAdapter.merge(message, this.messageList.get(i + 1)));
+            appendState(content, replyTargets.get(message.getReplyId()));
+            rows.add(new MessageRowSnapshot(diffKey(message), content.toString()));
+        }
+        return rows;
+    }
+
+    /** Refills messageList in place and reports the difference as per-row notifications. */
+    private void refillMessageList(final Runnable refill) {
+        refill.run();
+        try {
+            updateStatusMessages();
+        } catch (final IllegalStateException e) {
+            Log.d(Config.LOGTAG, "could not update status messages");
+        }
+        dispatchMessageListDiff();
+    }
+
+    /**
+     * Translates an in-place refill of messageList into targeted insert, remove and move
+     * notifications without rebuilding every visible bubble.
+     *
+     * <p>{@link Message} is mutable, so the previous object cannot be compared after a receipt,
+     * reaction, edit or transfer update mutates it. {@link #snapshotMessageRows()} captures an
+     * immutable render state before each dispatch. Unchanged rows therefore stay measured and in
+     * place instead of every refresh rebuilding the visible conversation and moving the viewport.
+     */
+    private void dispatchMessageListDiff() {
+        if (this.messageListAdapter == null || this.binding == null) {
+            return;
+        }
+        final var recyclerView = this.binding.messagesView;
+        // RecyclerView rejects notifyItem* raised from inside a measure, layout or scroll pass, and
+        // this can be reached from exactly there: the layout change listener and onScrolled both
+        // run inside one, and the loadMoreMessages callback hops back through
+        // Activity#runOnUiThread, which executes inline when already on the main thread. Retry
+        // after the pass instead. Nothing is captured, so the retry diffs against whatever the
+        // adapter believes at the moment it actually runs.
+        if (recyclerView.isComputingLayout()) {
+            recyclerView.post(this::dispatchMessageListDiff);
+            return;
+        }
+        // This is sampled while the adapter still exposes its previous immutable list. Intent
+        // flags can become stale across chat switches and IME/layout changes; the actual viewport
+        // is the authority for whether a newly appended message may move it.
+        final boolean wasAtBottom = scrolledToBottom(recyclerView);
+        final var before = this.dispatchedMessageRows;
+        final var after = snapshotMessageRows();
+        View visibleAnchor = null;
+        int oldAnchorPosition = RecyclerView.NO_POSITION;
+        for (int i = 0; i < recyclerView.getChildCount(); ++i) {
+            final View child = recyclerView.getChildAt(i);
+            final int position = recyclerView.getChildAdapterPosition(child);
+            if (position >= 0
+                    && position < before.size()
+                    && before.get(position).key.startsWith("u:")) {
+                visibleAnchor = child;
+                oldAnchorPosition = position;
+                break;
+            }
+        }
+        final int anchorTop =
+                visibleAnchor == null
+                        ? 0
+                        : this.messagesLayoutManager.getDecoratedTop(visibleAnchor)
+                                - recyclerView.getPaddingTop();
+        final var diff =
+                DiffUtil.calculateDiff(
+                        new DiffUtil.Callback() {
+                            @Override
+                            public int getOldListSize() {
+                                return before.size();
+                            }
+
+                            @Override
+                            public int getNewListSize() {
+                                return after.size();
+                            }
+
+                            @Override
+                            public boolean areItemsTheSame(
+                                    final int oldPosition, final int newPosition) {
+                                return before.get(oldPosition).key.equals(
+                                        after.get(newPosition).key);
+                            }
+
+                            @Override
+                            public boolean areContentsTheSame(
+                                    final int oldPosition, final int newPosition) {
+                                return before.get(oldPosition).content.equals(
+                                        after.get(newPosition).content);
+                            }
+                        },
+                        false);
+        // Record what the adapter has been told before dispatching, so a notification that
+        // re-enters this method cannot diff against the old baseline a second time.
+        this.messageListAdapter.replaceMessages(this.messageList);
+        this.dispatchedMessageRows = after;
+        diff.dispatchUpdatesTo(this.messageListAdapter);
+        // Follow only a newly appended real message. Synthetic read markers, date separators and
+        // the LOAD_MORE row can appear or move during refreshes and must never reposition the
+        // viewport or its scrollbar.
+        final boolean realMessageAppended =
+                realMessageCount(after) > realMessageCount(before)
+                        && !Objects.equals(
+                                lastRealMessageKey(before), lastRealMessageKey(after));
+        if (this.followingNewest && wasAtBottom && realMessageAppended) {
+            scrollToNewest();
+        } else if (!this.followingNewest && oldAnchorPosition != RecyclerView.NO_POSITION) {
+            final int newAnchorPosition = diff.convertOldPositionToNew(oldAnchorPosition);
+            if (newAnchorPosition != RecyclerView.NO_POSITION
+                    && newAnchorPosition != oldAnchorPosition) {
+                // Keep the same visible message at the same decorated top when an archive page
+                // is prepended. Capture from the adapter, whose indices match the laid-out views,
+                // rather than messageList, which may already contain that new page.
+                scrollToPositionWithOffset(newAnchorPosition, anchorTop);
+            }
+        }
+    }
+
+    private void setSelection(final int pos, final boolean jumpToBottom) {
+        if (this.binding == null || pos < 0) {
+            return;
+        }
+        if (jumpToBottom) {
+            scrollToNewest();
+        } else {
+            this.followingNewest = false;
+            applySelection(pos);
+        }
         this.binding.messagesView.post(this::fireReadEvent);
+    }
+
+    /** Places a historical target at the viewport's start, leaving newer context below it. */
+    private void applySelection(final int pos) {
+        final var layoutManager = this.messagesLayoutManager;
+        if (layoutManager == null) {
+            return;
+        }
+        layoutManager.scrollToPositionWithOffset(pos, 0);
+    }
+
+    /**
+     * Scrolls to the message a reply is quoting and flashes it.
+     *
+     * <p>A reply stores the wire-format id of its target, which is the server id in a group chat
+     * and the remote id (or uuid) in a one-to-one chat, so the lookup compares against each
+     * candidate's own {@code getReplyIdWireFormat()} rather than against its uuid.
+     */
+    private void jumpToQuotedMessage(final Message reply) {
+        final String replyId = reply.getReplyId();
+        if (Strings.isNullOrEmpty(replyId) || this.binding == null) {
+            return;
+        }
+        final Message target;
+        final int position;
+        synchronized (this.messageList) {
+            int found = -1;
+            for (int i = this.messageList.size() - 1; i >= 0; --i) {
+                if (replyId.equals(this.messageList.get(i).getReplyIdWireFormat())) {
+                    found = i;
+                    break;
+                }
+            }
+            position = found;
+            target = found < 0 ? null : this.messageList.get(found);
+        }
+        if (target == null) {
+            // Older history is paged in, so the quoted message may simply not be loaded. Saying so
+            // is better than a tap that silently does nothing.
+            Toast.makeText(
+                            requireContext(),
+                            R.string.original_message_not_loaded,
+                            Toast.LENGTH_SHORT)
+                    .show();
+            return;
+        }
+        // Explicit offsets are measured from the top in oldest-first layout, even with
+        // stackFromEnd. Place the quoted row a third down so its surrounding context is visible.
+        this.followingNewest = false;
+        scrollToPositionWithOffset(position, this.binding.messagesView.getHeight() / 3);
+        flashMessage(target);
+    }
+
+    /** Briefly recolours a row so the eye can find it after a jump. */
+    private void flashMessage(final Message message) {
+        final var adapter = this.messageListAdapter;
+        if (adapter == null || message.getUuid() == null) {
+            return;
+        }
+        final String uuid = message.getUuid();
+        adapter.setHighlightedMessage(uuid);
+        notifyMessageChanged(uuid);
+        this.binding.messagesView.postDelayed(
+                () -> {
+                    final var current = this.messageListAdapter;
+                    if (current == null) {
+                        return;
+                    }
+                    current.setHighlightedMessage(null);
+                    notifyMessageChanged(uuid);
+                },
+                MESSAGE_FLASH_DURATION_MS);
+    }
+
+    private void notifyMessageChanged(final String uuid) {
+        final var adapter = this.messageListAdapter;
+        final var recyclerView = this.binding == null ? null : this.binding.messagesView;
+        if (adapter == null || recyclerView == null) {
+            return;
+        }
+        final int position = adapter.positionOf(uuid);
+        if (position < 0) {
+            return;
+        }
+        if (recyclerView.isComputingLayout()) {
+            recyclerView.post(() -> notifyMessageChanged(uuid));
+            return;
+        }
+        adapter.notifyItemChanged(position);
+    }
+
+    private void scrollToNewest() {
+        if (this.binding == null
+                || this.messageListAdapter == null
+                || this.messagesLayoutManager == null) {
+            return;
+        }
+        this.followingNewest = true;
+        final int last = this.messageListAdapter.getItemCount() - 1;
+        if (last >= 0) {
+            this.binding.messagesView.scrollToPosition(last);
+        }
+    }
+
+    /** The adapter position under a touch point, or {@link RecyclerView#NO_POSITION}. */
+    private int positionUnder(final float x, final float y) {
+        if (this.binding == null) {
+            return RecyclerView.NO_POSITION;
+        }
+        final var child = this.binding.messagesView.findChildViewUnder(x, y);
+        return child == null
+                ? RecyclerView.NO_POSITION
+                : this.binding.messagesView.getChildAdapterPosition(child);
     }
 
     private boolean scrolledToBottom() {
@@ -2933,6 +3516,7 @@ public class ConversationFragment extends XmppFragment
         final int mode = conversation.getMode();
         final Contact contact = mode == Conversation.MODE_SINGLE ? conversation.getContact() : null;
         if (conversation.getStatus() == Conversation.STATUS_ARCHIVED) {
+            hideSnackbar();
             return;
         }
         if (account.getStatus() == Account.State.DISABLED) {
@@ -3061,6 +3645,9 @@ public class ConversationFragment extends XmppFragment
             }
         }
         this.refresh(true);
+        // A chat may open before login/service discovery finishes. Defer its first archive
+        // request until a later backend refresh rather than requiring the user to reopen it.
+        maybeLoadInitialHistory();
     }
 
     private void refresh(boolean notifyConversationRead) {
@@ -3074,7 +3661,7 @@ public class ConversationFragment extends XmppFragment
                     binding.unreadCountCustomView.setUnreadCount(
                             conversation.getReceivedMessagesCountSinceUuid(lastMessageUuid));
                 }
-                this.messageListAdapter.notifyDataSetChanged();
+                dispatchMessageListDiff();
                 updateChatMsgHint();
                 if (notifyConversationRead) {
                     binding.messagesView.post(this::fireReadEvent);
@@ -3100,12 +3687,7 @@ public class ConversationFragment extends XmppFragment
                         "scroll_to_bottom",
                         requireContext().getResources().getBoolean(R.bool.scroll_to_bottom));
         if (prefScrollToBottom || scrolledToBottom()) {
-            new Handler()
-                    .post(
-                            () -> {
-                                int size = messageList.size();
-                                this.binding.messagesView.setSelection(size - 1);
-                            });
+            scrollToNewest();
         }
     }
 
@@ -3199,38 +3781,31 @@ public class ConversationFragment extends XmppFragment
                             .getManager(ChatStateManager.class)
                             .getIncoming(conversation.getAddress());
             if (Objects.equals(state, Composing.class)) {
-                this.messageList.add(
-                        Message.createStatusMessage(
-                                conversation,
-                                getString(R.string.contact_is_typing, conversation.getName())));
-            } else if (Objects.equals(state, Paused.class)) {
-                this.messageList.add(
-                        Message.createStatusMessage(
-                                conversation,
-                                getString(
-                                        R.string.contact_has_stopped_typing,
-                                        conversation.getName())));
-            } else {
-                for (int i = this.messageList.size() - 1; i >= 0; --i) {
-                    final Message message = this.messageList.get(i);
-                    if (message.getType() != Message.TYPE_STATUS) {
-                        if (message.getStatus() == Message.STATUS_RECEIVED) {
-                            return;
-                        } else {
-                            if (message.getStatus() == Message.STATUS_SEND_DISPLAYED) {
-                                this.messageList.add(
-                                        i + 1,
-                                        Message.createStatusMessage(
-                                                conversation,
-                                                getString(
-                                                        R.string.contact_has_read_up_to_this_point,
-                                                        conversation.getName())));
-                                return;
-                            }
-                        }
-                    }
+                showConversationStatus(
+                        getString(R.string.contact_is_typing, conversation.getName()));
+                return;
+            }
+            // One-to-one read state is already represented by the delivery/read icon on the
+            // outgoing bubble. Keep the more explicit text as a fixed overlay instead of a
+            // synthetic row that moves the bottom edge whenever a receipt arrives.
+            for (int i = this.messageList.size() - 1; i >= 0; --i) {
+                final Message message = this.messageList.get(i);
+                if (message.getType() == Message.TYPE_STATUS) {
+                    continue;
+                }
+                if (message.getStatus() == Message.STATUS_RECEIVED) {
+                    break;
+                }
+                if (message.getStatus() == Message.STATUS_SEND_DISPLAYED) {
+                    showConversationStatus(
+                            getString(
+                                    R.string.contact_has_read_up_to_this_point,
+                                    conversation.getName()));
+                    return;
                 }
             }
+            hideConversationStatus();
+            return;
         } else {
             final MucOptions mucOptions = conversation.getMucOptions();
             final List<MucOptions.User> allUsers = mucOptions.getUsers();
@@ -3295,40 +3870,47 @@ public class ConversationFragment extends XmppFragment
                     }
                 }
             }
-            if (usersChatState.users().isEmpty()) {
+            if (usersChatState.users().isEmpty()
+                    || !Objects.equals(usersChatState.chatState(), Composing.class)) {
+                hideConversationStatus();
                 return;
             }
-            Message statusMessage;
+            final String text;
             if (usersChatState.users().size() == 1) {
-                MucOptions.User user = Iterables.getOnlyElement(usersChatState.users());
-                int id =
-                        Objects.equals(usersChatState.chatState(), Composing.class)
-                                ? R.string.contact_is_typing
-                                : R.string.contact_has_stopped_typing;
-                statusMessage =
-                        Message.createStatusMessage(
-                                conversation, getString(id, user.getDisplayName()));
-                statusMessage.setTrueCounterpart(user.getRealJid());
-                statusMessage.setCounterpart(user.getFullJid());
+                final MucOptions.User user = Iterables.getOnlyElement(usersChatState.users());
+                text = getString(R.string.contact_is_typing, user.getDisplayName());
             } else {
-                int id =
-                        Objects.equals(usersChatState.chatState(), Composing.class)
-                                ? R.string.contacts_are_typing
-                                : R.string.contacts_have_stopped_typing;
-                statusMessage =
-                        Message.createStatusMessage(
-                                conversation,
-                                getString(id, UIHelper.concatNames(usersChatState.users())));
-                statusMessage.setCounterparts(usersChatState.users());
+                text =
+                        getString(
+                                R.string.contacts_are_typing,
+                                UIHelper.concatNames(usersChatState.users()));
             }
-            this.messageList.add(statusMessage);
+            showConversationStatus(text);
+        }
+    }
+
+    private void showConversationStatus(final String text) {
+        if (this.binding == null) {
+            return;
+        }
+        this.binding.conversationStatus.setText(text);
+        this.binding.conversationStatus.setVisibility(View.VISIBLE);
+    }
+
+    private void hideConversationStatus() {
+        if (this.binding != null) {
+            this.binding.conversationStatus.setVisibility(View.GONE);
         }
     }
 
     private void stopScrolling() {
+        // ACTION_CANCEL ends the finger gesture but does not stop RecyclerView's ViewFlinger. Stop
+        // both so an old fling cannot fight a new conversation/bottom position.
+        binding.messagesView.stopScroll();
         long now = SystemClock.uptimeMillis();
         MotionEvent cancel = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0, 0, 0);
         binding.messagesView.dispatchTouchEvent(cancel);
+        cancel.recycle();
     }
 
     private boolean showLoadMoreMessages(final Conversation c) {

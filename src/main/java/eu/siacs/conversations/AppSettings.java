@@ -43,6 +43,7 @@ public class AppSettings {
     public static final String ALLOW_SCREENSHOTS = "allow_screenshots";
     public static final String RINGTONE = "call_ringtone";
     public static final String DISPLAY_ENTER_KEY = "display_enter_key";
+    public static final String SELECTED_ACCOUNT = "selected_account";
 
     public static final String READ_RECEIPTS = "confirm_messages";
     public static final String ALLOW_MESSAGE_CORRECTION = "allow_message_correction";
@@ -332,6 +333,38 @@ public class AppSettings {
 
     public boolean isDisplayEnterKey() {
         return getBooleanPreference(DISPLAY_ENTER_KEY, R.bool.display_enter_key);
+    }
+
+    /**
+     * The account the conversation list is filtered to, or absent for the unified inbox.
+     *
+     * <p>Absent is the default, so the list keeps showing every account until someone explicitly
+     * picks one.
+     */
+    public Optional<Jid> getSelectedAccount() {
+        final var raw =
+                PreferenceManager.getDefaultSharedPreferences(context)
+                        .getString(SELECTED_ACCOUNT, null);
+        if (Strings.isNullOrEmpty(raw)) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(Jid.of(raw).asBareJid());
+        } catch (final IllegalArgumentException e) {
+            // A stored address that no longer parses should not wedge the inbox.
+            return Optional.empty();
+        }
+    }
+
+    /** Pass null to go back to the unified inbox. */
+    public void setSelectedAccount(final Jid jid) {
+        final var editor = PreferenceManager.getDefaultSharedPreferences(context).edit();
+        if (jid == null) {
+            editor.remove(SELECTED_ACCOUNT);
+        } else {
+            editor.putString(SELECTED_ACCOUNT, jid.asBareJid().toString());
+        }
+        editor.apply();
     }
 
     public void setSendCrashReports(boolean value) {

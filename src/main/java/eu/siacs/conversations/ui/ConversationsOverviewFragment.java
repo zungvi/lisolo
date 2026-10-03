@@ -53,12 +53,15 @@ import androidx.lifecycle.Lifecycle;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import com.google.android.material.transition.MaterialSharedAxis;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Iterables;
 import eu.siacs.conversations.BuildConfig;
+import eu.siacs.conversations.AppSettings;
 import eu.siacs.conversations.Config;
+import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.databinding.FragmentConversationsOverviewBinding;
 import eu.siacs.conversations.entities.Account;
@@ -314,6 +317,15 @@ public class ConversationsOverviewFragment extends XmppFragment {
     }
 
     @Override
+    public void onCreate(@Nullable final Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        // The counterpart of ConversationFragment's enter/return pair: the list slides out as a
+        // chat opens and slides back in when it closes.
+        setExitTransition(new MaterialSharedAxis(MaterialSharedAxis.X, true));
+        setReenterTransition(new MaterialSharedAxis(MaterialSharedAxis.X, false));
+    }
+
+    @Override
     public View onCreateView(
             @NonNull final LayoutInflater inflater,
             ViewGroup container,
@@ -342,6 +354,10 @@ public class ConversationsOverviewFragment extends XmppFragment {
         this.binding.list.addOnScrollListener(ExtendedFabSizeChanger.of(binding.fab));
         this.touchHelper = new ItemTouchHelper(this.callback);
         this.touchHelper.attachToRecyclerView(this.binding.list);
+        // The list draws behind the navigation bar; padding keeps the final row reachable and the
+        // FAB clear of it.
+        Activities.applyBottomInset(this.binding.list);
+        Activities.applyBottomMarginInset(this.binding.fab);
         return binding.getRoot();
     }
 
@@ -424,9 +440,9 @@ public class ConversationsOverviewFragment extends XmppFragment {
                             + " or activity was null");
             return;
         }
-        this.requireXmppActivity()
-                .xmppConnectionService
-                .populateWithOrderedConversations(this.conversations);
+        final var service = this.requireXmppActivity().xmppConnectionService;
+        service.populateWithOrderedConversations(this.conversations);
+        applyAccountFilter(service);
         Conversation removed = this.swipedConversation.peek();
         if (removed != null) {
             if (removed.isRead()) {
@@ -447,6 +463,35 @@ public class ConversationsOverviewFragment extends XmppFragment {
                 setScrollPosition(scrollState);
             }
         }
+    }
+
+    /**
+     * Narrows the list to the account chosen in the switcher. A null selection, which is the
+     * default, leaves the unified inbox untouched.
+     *
+     * <p>If the stored account has since been deleted the selection is cleared rather than leaving
+     * the user staring at an inbox that is empty for a reason nothing on screen explains.
+     */
+    private void applyAccountFilter(final XmppConnectionService service) {
+        final var appSettings = new AppSettings(requireContext());
+        final var selected = appSettings.getSelectedAccount();
+        if (selected.isEmpty()) {
+            return;
+        }
+        final var jid = selected.get();
+        final boolean stillExists =
+                Iterables.any(
+                        service.getAccounts(),
+                        account -> jid.equals(account.getJid().asBareJid()));
+        if (!stillExists) {
+            appSettings.setSelectedAccount(null);
+            if (getActivity() instanceof ConversationsActivity activity) {
+                activity.refreshAccountSwitcher();
+            }
+            return;
+        }
+        this.conversations.removeIf(
+                conversation -> !jid.equals(conversation.getAccount().getJid().asBareJid()));
     }
 
     private void toggleHintVisibility() {

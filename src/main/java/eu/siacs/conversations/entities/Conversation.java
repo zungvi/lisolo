@@ -56,6 +56,7 @@ public class Conversation extends AbstractEntity
     public static final String ATTRIBUTE_FORMERLY_PRIVATE_NON_ANONYMOUS =
             "formerly_private_non_anonymous";
     public static final String ATTRIBUTE_PINNED_ON_TOP = "pinned_on_top";
+    private static final String ATTRIBUTE_MARKED_UNREAD = "marked_unread";
     static final String ATTRIBUTE_MUC_PASSWORD = "muc_password";
     static final String ATTRIBUTE_CAPS2_HASH = "muc_caps2_hash";
     private static final String ATTRIBUTE_NEXT_MESSAGE = "next_message";
@@ -591,6 +592,9 @@ public class Conversation extends AbstractEntity
     }
 
     public boolean isRead() {
+        if (isMarkedUnread()) {
+            return false;
+        }
         synchronized (this.messages) {
             for (final Message message : Lists.reverse(this.messages)) {
                 if (message.isRead() && message.getType() == Message.TYPE_RTP_SESSION) {
@@ -600,6 +604,22 @@ public class Conversation extends AbstractEntity
             }
             return true;
         }
+    }
+
+    /**
+     * A user-created unread marker is local UI state. Unlike Message#read, it must not cause a
+     * second displayed marker to be sent to the other side of a chat.
+     */
+    public boolean markUnreadLocally() {
+        return setAttribute(ATTRIBUTE_MARKED_UNREAD, true);
+    }
+
+    public boolean clearLocalUnreadMarker() {
+        return setAttribute(ATTRIBUTE_MARKED_UNREAD, (String) null);
+    }
+
+    public boolean isMarkedUnread() {
+        return getBooleanAttribute(ATTRIBUTE_MARKED_UNREAD, false);
     }
 
     public List<Message> markRead(final String upToUuid) {
@@ -1081,6 +1101,7 @@ public class Conversation extends AbstractEntity
     }
 
     public int unreadCount() {
+        final boolean markedUnread = isMarkedUnread();
         synchronized (this.messages) {
             int count = 0;
             for (final Message message : Lists.reverse(this.messages)) {
@@ -1088,11 +1109,11 @@ public class Conversation extends AbstractEntity
                     if (message.getType() == Message.TYPE_RTP_SESSION) {
                         continue;
                     }
-                    return count;
+                    return Math.max(count, markedUnread ? 1 : 0);
                 }
                 ++count;
             }
-            return count;
+            return Math.max(count, markedUnread ? 1 : 0);
         }
     }
 

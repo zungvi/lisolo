@@ -36,6 +36,7 @@ import android.annotation.SuppressLint;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
@@ -45,6 +46,9 @@ import android.util.Log;
 import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.graphics.Bitmap;
+import android.graphics.drawable.InsetDrawable;
+import android.view.View;
 import android.widget.Toast;
 import androidx.annotation.IdRes;
 import androidx.annotation.NonNull;
@@ -53,19 +57,26 @@ import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.core.widget.ImageViewCompat;
 import androidx.databinding.DataBindingUtil;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentTransaction;
+import androidx.core.graphics.drawable.RoundedBitmapDrawableFactory;
+import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.common.collect.Iterables;
+import eu.siacs.conversations.AppSettings;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.crypto.OmemoSetting;
 import eu.siacs.conversations.databinding.ActivityConversationsBinding;
+import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.entities.Contact;
 import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.entities.Conversational;
 import eu.siacs.conversations.services.XmppConnectionService;
+import eu.siacs.conversations.ui.util.AvatarWorkerTask;
 import eu.siacs.conversations.ui.interfaces.OnBackendConnected;
 import eu.siacs.conversations.ui.interfaces.OnConversationArchived;
 import eu.siacs.conversations.ui.interfaces.OnConversationRead;
@@ -83,6 +94,8 @@ import eu.siacs.conversations.xmpp.Jid;
 import eu.siacs.conversations.xmpp.OnUpdateBlocklist;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.openintents.openpgp.util.OpenPgpApi;
 
 public class ConversationsActivity extends XmppActivity
@@ -95,7 +108,14 @@ public class ConversationsActivity extends XmppActivity
                 XmppConnectionService.OnRosterUpdate,
                 OnUpdateBlocklist,
                 XmppConnectionService.OnShowErrorToast,
-                XmppConnectionService.OnAffiliationChanged {
+                XmppConnectionService.OnAffiliationChanged,
+                AccountSwitcherSheet.OnAccountSelectionChanged {
+
+    /** Generates the toolbar avatar off the main thread when it is not already cached. */
+    private static final ExecutorService AVATAR_EXECUTOR = Executors.newSingleThreadExecutor();
+
+    /** The chat whose avatar the toolbar is currently showing or loading. */
+    private Conversation toolbarAvatarConversation;
 
     public static final String ACTION_VIEW_CONVERSATION = "eu.siacs.conversations.action.VIEW";
     public static final String EXTRA_CONVERSATION = "conversationUuid";
@@ -143,6 +163,7 @@ public class ConversationsActivity extends XmppActivity
     protected void refreshUiReal() {
         invalidateOptionsMenu();
         invalidateActionBarTitle();
+        refreshAccountSwitcher();
         for (@IdRes int id : FRAGMENT_ID_NOTIFICATION_ORDER) {
             refreshFragment(id);
         }
@@ -366,7 +387,11 @@ public class ConversationsActivity extends XmppActivity
         ConversationMenuConfigurator.reloadFeatures(this);
         OmemoSetting.load(this);
         this.binding = DataBindingUtil.setContentView(this, R.layout.activity_conversations);
-        Activities.setStatusAndNavigationBarColors(this, binding.getRoot());
+        // The hosted fragments route their own bottom and keyboard insets, so this activity only
+        // claims the status bar inset for the app bar.
+        Activities.applyWindowChrome(this);
+        Activities.applyTopInset(binding.appBarLayout);
+        binding.accountSwitcher.setOnClickListener(v -> showAccountSwitcher());
         setSupportActionBar(binding.toolbar);
         configureActionBar(getSupportActionBar());
         this.getSupportFragmentManager()
@@ -438,6 +463,12 @@ public class ConversationsActivity extends XmppActivity
     }
 
     private void openConversation(@Nullable final Conversation conversation, final Bundle extras) {
+        // Deliberately opening a chat clears any local unread marker. Done here rather than in
+        // ConversationFragment#reInit: on a phone that fragment has only just been committed and is
+        // not yet attached to an activity, so it cannot reach the service itself.
+        if (conversation != null && xmppConnectionService != null) {
+            xmppConnectionService.clearConversationUnreadMarker(conversation);
+        }
         final var fragmentManager = getSupportFragmentManager();
         executePendingTransactions(fragmentManager);
         final boolean mainNeedsRefresh;
@@ -609,6 +640,75 @@ public class ConversationsActivity extends XmppActivity
         transaction.commitAllowingStateLoss();
     }
 
+    private void showAccountSwitcher() {
+        final var existing = getSupportFragmentManager().findFragmentByTag(AccountSwitcherSheet.TAG);
+        if (existing != null) {
+            return;
+        }
+        new AccountSwitcherSheet().show(getSupportFragmentManager(), AccountSwitcherSheet.TAG);
+    }
+
+    @Override
+    public void onAccountSelectionChanged() {
+        refreshAccountSwitcher();
+        refreshFragment(R.id.main_fragment);
+        invalidateActionBarTitle();
+    }
+
+    /**
+     * Shows the switcher only once there is something to switch between, and paints it with the
+     * avatar of whatever the inbox is currently filtered to.
+     */
+    public void refreshAccountSwitcher() {
+        if (this.binding == null) {
+            return;
+        }
+        final var switcher = this.binding.accountSwitcher;
+        final var service = this.xmppConnectionService;
+        if (service == null) {
+            switcher.setVisibility(View.GONE);
+            return;
+        }
+        final var accounts = service.getAccounts();
+        if (accounts.size() < 2) {
+            // A single-account install gains nothing from a switcher, so it gets no extra chrome.
+            switcher.setVisibility(View.GONE);
+            return;
+        }
+        switcher.setVisibility(View.VISIBLE);
+        final var selected = new AppSettings(this).getSelectedAccount();
+        final Account account =
+                selected.isPresent()
+                        ? Iterables.tryFind(
+                                        accounts,
+                                        a -> selected.get().equals(a.getJid().asBareJid()))
+                                .orNull()
+                        : null;
+        if (account == null) {
+            // Unified inbox, or a selection that no longer resolves: a neutral glyph rather than
+            // one account's avatar, which would imply the list is filtered to it.
+            switcher.setImageResource(R.drawable.ic_forum_24dp);
+            switcher.setBackgroundColor(
+                    MaterialColors.getColor(
+                            switcher, com.google.android.material.R.attr.colorSurfaceVariant));
+            ImageViewCompat.setImageTintList(
+                    switcher,
+                    ColorStateList.valueOf(
+                            MaterialColors.getColor(
+                                    switcher,
+                                    com.google.android.material.R.attr.colorOnSurfaceVariant)));
+            switcher.setContentDescription(getString(R.string.switch_account));
+        } else {
+            switcher.setBackground(null);
+            ImageViewCompat.setImageTintList(switcher, null);
+            AvatarWorkerTask.loadAvatar(account, switcher, R.dimen.avatar);
+            switcher.setContentDescription(
+                    getString(R.string.switch_account)
+                            + ", "
+                            + account.getJid().asBareJid());
+        }
+    }
+
     private void invalidateActionBarTitle() {
         final ActionBar actionBar = getSupportActionBar();
         if (actionBar == null) {
@@ -620,6 +720,10 @@ public class ConversationsActivity extends XmppActivity
             final Conversation conversation = conversationFragment.getConversation();
             if (conversation != null) {
                 setTitleAndSubtitle(actionBar, conversation, true);
+                // A chat fills the whole pane, so the inbox the switcher acts on is not on screen.
+                // Leaving it up put your own face next to the other party's and squeezed the name
+                // down to an ellipsis.
+                this.binding.accountSwitcher.setVisibility(View.GONE);
                 return;
             }
         }
@@ -631,13 +735,34 @@ public class ConversationsActivity extends XmppActivity
                 setTitleAndSubtitle(actionBar, conversation, false);
             } else {
                 actionBar.setTitle(R.string.app_name);
+                this.toolbarAvatarConversation = null;
+                actionBar.setDisplayUseLogoEnabled(false);
+                actionBar.setLogo(null);
             }
         } else {
             actionBar.setTitle(R.string.app_name);
-            actionBar.setSubtitle(null);
+            // While the inbox is narrowed to one account, say which one. Without this the list
+            // silently hides conversations and looks like messages have gone missing.
+            actionBar.setSubtitle(filteredAccountSubtitle());
         }
+        this.toolbarAvatarConversation = null;
+        actionBar.setDisplayUseLogoEnabled(false);
+        actionBar.setLogo(null);
         actionBar.setDisplayHomeAsUpEnabled(false);
+        // Either the inbox is in the main pane, or this is a tablet whose chat sits beside it; the
+        // switcher is meaningful in both, subject to its own "more than one account" rule.
+        refreshAccountSwitcher();
         ToolbarUtils.resetActionBarOnClickListeners(binding.toolbar);
+    }
+
+    /** The selected account's address, or null when showing the unified inbox. */
+    private CharSequence filteredAccountSubtitle() {
+        final var service = this.xmppConnectionService;
+        if (service == null || service.getAccounts().size() < 2) {
+            return null;
+        }
+        final var selected = new AppSettings(this).getSelectedAccount();
+        return selected.map(jid -> (CharSequence) jid.toString()).orElse(null);
     }
 
     private void setTitleAndSubtitle(
@@ -661,10 +786,86 @@ public class ConversationsActivity extends XmppActivity
             actionBar.setSubtitle(null);
         }
         actionBar.setDisplayHomeAsUpEnabled(true);
+        bindConversationAvatar(actionBar, conversation);
         if (clickable) {
             ToolbarUtils.setActionBarOnClickListener(
                     binding.toolbar, (v) -> openConversationDetails(conversation));
         }
+    }
+
+    /**
+     * Shows the other party's avatar beside the title in a 1:1 chat. Messages no longer carry an
+     * avatar there, so this is the only place the face appears; group chats keep theirs per
+     * message, where it tells you who wrote what, and get nothing here.
+     *
+     * <p>This uses the toolbar's logo slot rather than a child view. A child with {@code
+     * layout_gravity="start"} is laid out after the title, which pushed the name into an ellipsis.
+     * The logo sits between the navigation icon and the title, which is where this belongs.
+     */
+    private void bindConversationAvatar(final ActionBar actionBar, final Conversation conversation) {
+        if (conversation.getMode() != Conversational.MODE_SINGLE) {
+            this.toolbarAvatarConversation = null;
+            actionBar.setDisplayUseLogoEnabled(false);
+            actionBar.setLogo(null);
+            return;
+        }
+        this.toolbarAvatarConversation = conversation;
+        final var contact = conversation.getContact();
+        final int size = getResources().getDimensionPixelSize(R.dimen.avatar_on_toolbar);
+        final var cached = avatarService().get(contact, size, true);
+        if (cached != null) {
+            applyToolbarLogo(cached, conversation);
+            return;
+        }
+        // Not cached yet: clear the previous chat's face rather than leave it on the wrong name,
+        // and generate off the main thread.
+        actionBar.setLogo(null);
+        AVATAR_EXECUTOR.execute(
+                () -> {
+                    final var bitmap = avatarService().get(contact, size, false);
+                    if (bitmap == null) {
+                        return;
+                    }
+                    runOnUiThread(() -> applyToolbarLogo(bitmap, conversation));
+                });
+    }
+
+    /** Applies {@code bitmap} only while {@code conversation} is still the one on screen. */
+    private void applyToolbarLogo(final Bitmap bitmap, final Conversation conversation) {
+        // Compared against our own field, not the fragment: when this lands from the executor the
+        // fragment transaction that hosts the chat has often not been executed yet, so
+        // ConversationFragment#getConversation still answers null and every avatar was discarded.
+        if (this.toolbarAvatarConversation != conversation) {
+            return;
+        }
+        final var actionBar = getSupportActionBar();
+        if (actionBar == null) {
+            return;
+        }
+        final var circle = RoundedBitmapDrawableFactory.create(getResources(), bitmap);
+        circle.setCircular(true);
+        // The toolbar draws the logo hard against the title, so the gap has to come from the
+        // drawable itself. contentInsetStartWithNavigation is zeroed in the layout to pay for it.
+        final int gap = getResources().getDimensionPixelSize(R.dimen.toolbar_avatar_gap);
+        final var logo =
+                new InsetDrawable(circle, 0, 0, gap, 0) {
+                    @Override
+                    public int getIntrinsicWidth() {
+                        return circle.getIntrinsicWidth() + gap;
+                    }
+
+                    @Override
+                    public int getIntrinsicHeight() {
+                        return circle.getIntrinsicHeight();
+                    }
+                };
+        // ToolbarWidgetWrapper rewrites the toolbar's logo from its own display options whenever
+        // they change, so the logo has to go through the ActionBar and these two flags have to be
+        // on, or setDisplayHomeAsUpEnabled silently clears it again.
+        actionBar.setDisplayShowHomeEnabled(true);
+        actionBar.setDisplayUseLogoEnabled(true);
+        actionBar.setLogo(logo);
+        binding.toolbar.setLogoDescription(conversation.getName());
     }
 
     private void openConversationDetails(final Conversation conversation) {

@@ -17,7 +17,9 @@
     <string name="picture_compression">auto</string>
     <bool name="use_green_background">true</bool>
     <bool name="large_font">false</bool>
-    <bool name="show_avatars">true</bool>
+    <!-- Avatars in 1:1 chats add nothing: the other party is already named in the app bar.
+         Group chats still show incoming avatars, which MessageAdapter forces via MODE_MULTI. -->
+    <bool name="show_avatars">false</bool>
     <string name="quick_action">recent</string>
     <bool name="show_dynamic_tags">false</bool>
     <bool name="dynamic_colors">false</bool>

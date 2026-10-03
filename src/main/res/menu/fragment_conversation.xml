@@ -135,6 +135,11 @@
                 android:orderInCategory="73"
                 android:title="@string/add_to_favorites"
                 app:showAsAction="never" />
+            <item
+                android:id="@+id/action_mark_as_unread"
+                android:orderInCategory="74"
+                android:title="@string/mark_as_unread"
+                app:showAsAction="never" />
         </menu>
     </item>
 

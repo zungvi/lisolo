@@ -367,6 +367,7 @@
     <string name="error_no_keys_to_trust_presence">There are no usable keys available for this contact.\nMake sure you both have presence subscription.</string>
     <string name="error_trustkeys_title">Something went wrong</string>
     <string name="fetching_history_from_server">Fetching history from server</string>
+    <string name="history_load_failed">Could not retrieve message history. Try again.</string>
     <string name="no_more_history_on_server">No more history on server</string>
     <string name="updating">Updating…</string>
     <string name="password_changed">Password changed!</string>
@@ -410,6 +411,7 @@
     <string name="snooze">Snooze</string>
     <string name="reply">Reply</string>
     <string name="mark_as_read">Mark as read</string>
+    <string name="mark_as_unread">Mark as unread</string>
     <string name="pref_input_options">Input</string>
     <string name="pref_enter_is_send">Enter is send</string>
     <string name="pref_enter_is_send_summary">Use Enter key to send message. You can always use Ctrl+Enter to send message, even if this option is disabled.</string>
@@ -548,8 +550,8 @@
     <string name="no_application_to_share_uri">No app found to share URI</string>
     <string name="share_uri_with">Share URI with…</string>
     <string name="welcome_header">Join the Conversation</string>
-    <string name="welcome_header_quicksy">Welcome to Zungvi Messenger!</string>
-    <string name="welcome_text_quicksy_static" translatable="false"><![CDATA[· Zungvi Messenger syncs your contact list in regular intervals to make suggestions about possible contacts who are already using the app even when the app is closed or not in use.<br>· Zungvi Messenger shares and stores images, audio recordings, videos and other media to deliver them to the intended recipients. Files will be stored for up to 30 days.<br><br>Find more information in our <a href="https://zungvi.com/privacy">Privacy Policy</a>.]]></string>
+    <string name="welcome_header_quicksy">Welcome to Lisolo!</string>
+    <string name="welcome_text_quicksy_static" translatable="false"><![CDATA[· Lisolo syncs your contact list in regular intervals to make suggestions about possible contacts who are already using the app even when the app is closed or not in use.<br>· Lisolo shares and stores images, audio recordings, videos and other media to deliver them to the intended recipients. Files will be stored for up to 30 days.<br><br>Find more information in our <a href="https://zungvi.com/privacy">Privacy Policy</a>.]]></string>
     <string name="agree_and_continue">Agree and continue</string>
     <string name="magic_create_text">A guide is set up for account creation on zungvi.com.\nWhen picking zungvi.com as a provider you will be able to communicate with users of other providers by giving them your full XMPP address.</string>
     <string name="your_full_jid_will_be">Your full XMPP address will be: %s</string>
@@ -852,6 +854,15 @@
     <string name="open_with">Open with…</string>
     <string name="set_profile_picture">Profile picture</string>
     <string name="choose_account">Choose account</string>
+    <string name="all_accounts">All accounts</string>
+    <string name="original_message_not_loaded">Original message is not loaded yet. Scroll up to load more.</string>
+    <plurals name="n_accounts">
+        <item quantity="one">%d account</item>
+        <item quantity="other">%d accounts</item>
+    </plurals>
+    <string name="switch_account">Switch account</string>
+    <string name="add_account">Add account</string>
+    <string name="showing_one_account">Showing one account</string>
     <string name="restore_backup">Restore backup</string>
     <string name="restore">Restore</string>
     <string name="enter_password_to_restore">Enter your password for the account %s to restore the backup.</string>
@@ -901,10 +912,10 @@
     <string name="add_anway">Add anyway</string>
     <string name="this_looks_like_channel">This looks like a channel address</string>
     <string name="share_backup_files">Share backup files</string>
-    <string name="conversations_backup">Zungvi Messenger backup</string>
+    <string name="conversations_backup">Lisolo backup</string>
     <string name="event">Event</string>
     <string name="open_backup">Open backup</string>
-    <string name="not_a_backup_file">The file you selected is not a Zungvi Messenger backup file</string>
+    <string name="not_a_backup_file">The file you selected is not a Lisolo backup file</string>
     <string name="outdated_backup_file_format">You are trying to import an outdated backup file format</string>
     <string name="non_quicksy_backup">This app can only restore backups for accounts it supports</string>
     <string name="account_already_setup">This account has already been setup</string>
@@ -1007,7 +1018,7 @@
     <string name="failed_deliveries">Failed deliveries</string>
     <string name="more_options">More options</string>
     <string name="no_application_found">No application found</string>
-    <string name="invite_to_app">Invite to Zungvi</string>
+    <string name="invite_to_app">Invite to Lisolo</string>
     <string name="unable_to_parse_invite">Unable to parse invite</string>
     <string name="server_does_not_support_easy_onboarding_invites">Server does not support generating invites</string>
     <string name="no_active_accounts_support_this">No active accounts support this feature</string>
@@ -1049,6 +1060,8 @@
     <string name="pref_summary_security">E2E Encryption, Blind Trust Before Verification, MITM Detection</string>
     <string name="unified_push_summary">Notification relay for UnifiedPush compatible third party apps</string>
     <string name="notifications">Notifications</string>
+    <string name="notifications_muted">Notifications muted</string>
+    <string name="notifications_paused">Notifications paused</string>
     <string name="pref_attachments_summary">File size, Image compression, Video quality</string>
     <string name="pref_notifications_summary">Grace period, Ringtone, Vibration, Strangers</string>
     <string name="pref_category_sending">Sending</string>
