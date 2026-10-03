@@ -591,6 +591,7 @@ public class ConversationFragment extends XmppFragment
                     final MenuItem menuOngoingCall = menu.findItem(R.id.action_ongoing_call);
                     final MenuItem menuVideoCall = menu.findItem(R.id.action_video_call);
                     final MenuItem menuTogglePinned = menu.findItem(R.id.action_toggle_pinned);
+                    final MenuItem menuMarkUnread = menu.findItem(R.id.action_mark_as_unread);
                     final var c = ConversationFragment.this.conversation;
                     if (c == null) {
                         return;
@@ -646,6 +647,7 @@ public class ConversationFragment extends XmppFragment
                     } else {
                         menuTogglePinned.setTitle(R.string.add_to_favorites);
                     }
+                    menuMarkUnread.setVisible(c.isRead());
                 }
 
                 @Override
@@ -676,6 +678,15 @@ public class ConversationFragment extends XmppFragment
                             requireXmppActivity()
                                     .xmppConnectionService
                                     .archiveConversation(conversation);
+                            break;
+                        case R.id.action_mark_as_unread:
+                            if (requireXmppActivity()
+                                    .xmppConnectionService
+                                    .markConversationUnread(conversation)) {
+                                // Leaving the visible thread prevents a scheduled read callback
+                                // from immediately undoing this local-only marker.
+                                requireConversationsActivity().onConversationArchived(conversation);
+                            }
                             break;
                         case R.id.action_contact_details:
                             requireXmppActivity().switchToContactDetails(conversation.getContact());

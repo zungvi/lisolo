@@ -3584,6 +3584,28 @@ public class XmppConnectionService extends Service {
         return markRead(conversation, null, dismiss).size() > 0;
     }
 
+    /** Marks a chat unread only in this app; it never emits an XMPP displayed marker. */
+    public boolean markConversationUnread(final Conversation conversation) {
+        if (!conversation.markUnreadLocally()) {
+            return false;
+        }
+        updateConversation(conversation);
+        updateConversationUi();
+        updateUnreadCountBadge();
+        return true;
+    }
+
+    /** Clears the local marker when the user deliberately opens that chat again. */
+    public boolean clearConversationUnreadMarker(final Conversation conversation) {
+        if (!conversation.clearLocalUnreadMarker()) {
+            return false;
+        }
+        updateConversation(conversation);
+        updateConversationUi();
+        updateUnreadCountBadge();
+        return true;
+    }
+
     public void markRead(final Conversation conversation) {
         markRead(conversation, null, true);
     }

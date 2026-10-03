@@ -452,6 +452,12 @@ public class ConversationsActivity extends XmppActivity
     }
 
     private void openConversation(@Nullable final Conversation conversation, final Bundle extras) {
+        // Deliberately opening a chat clears any local unread marker. Done here rather than in
+        // ConversationFragment#reInit: on a phone that fragment has only just been committed and is
+        // not yet attached to an activity, so it cannot reach the service itself.
+        if (conversation != null && xmppConnectionService != null) {
+            xmppConnectionService.clearConversationUnreadMarker(conversation);
+        }
         final var fragmentManager = getSupportFragmentManager();
         executePendingTransactions(fragmentManager);
         final boolean mainNeedsRefresh;
