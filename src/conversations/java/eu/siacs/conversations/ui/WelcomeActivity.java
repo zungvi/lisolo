@@ -14,13 +14,20 @@ import android.security.KeyChainAliasCallback;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.databinding.DataBindingUtil;
 import com.google.common.base.Strings;
+import eu.siacs.conversations.BuildConfig;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
+import eu.siacs.conversations.zungvi.GoogleSignIn;
+import eu.siacs.conversations.zungvi.ZungviAuth;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import eu.siacs.conversations.databinding.ActivityWelcomeBinding;
 import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.services.XmppConnectionService;
@@ -37,7 +44,11 @@ public class WelcomeActivity extends XmppActivity
 
     private static final int REQUEST_IMPORT_BACKUP = 0x63fb;
 
+    /** Sign-in is network bound and must not run on the main thread. */
+    private static final ExecutorService AUTH_EXECUTOR = Executors.newSingleThreadExecutor();
+
     private XmppUri inviteUri;
+    private ActivityWelcomeBinding binding;
 
     public static void launch(AppCompatActivity activity) {
         Intent intent = new Intent(activity, WelcomeActivity.class);
@@ -116,15 +127,14 @@ public class WelcomeActivity extends XmppActivity
         Activities.setStatusAndNavigationBarColors(this, binding.getRoot());
         setSupportActionBar(binding.toolbar);
         configureActionBar(getSupportActionBar(), false);
-        binding.learnMore.setOnClickListener(v -> {
-            final Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setData(Uri.parse("https://snikket.org/app/learn/?ref=app"));
-            try {
-                startActivity(intent);
-            } catch (ActivityNotFoundException e) {
-                Toast.makeText(this,R.string.no_application_found_to_open_link, Toast.LENGTH_LONG).show();
-            }
-                });
+        this.binding = binding;
+        binding.signInZungvi.setOnClickListener(v -> signInWithZungvi());
+        binding.signInGoogle.setOnClickListener(v -> signInWithGoogle());
+        // Credential Manager routes Google sign-in through Play Services, so without it the
+        // button could only ever fail. Hiding it leaves the Zungvi and manual paths, which
+        // both work on a device with no Google apps at all.
+        binding.signInGoogle.setVisibility(
+                GoogleSignIn.isAvailable(this) ? View.VISIBLE : View.GONE);
         binding.useExisting.setOnClickListener(
                 v -> {
                     final List<Account> accounts = xmppConnectionService.getAccounts();
@@ -139,6 +149,115 @@ public class WelcomeActivity extends XmppActivity
                     addInviteUri(intent);
                     startActivity(intent);
                 });
+    }
+
+    private void signInWithZungvi() {
+        final String email = Strings.nullToEmpty(binding.email.getText().toString()).trim();
+        final String password = Strings.nullToEmpty(binding.password.getText().toString());
+        if (email.isEmpty() || password.isEmpty()) {
+            Toast.makeText(this, R.string.enter_email_and_password, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        setBusy(true);
+        AUTH_EXECUTOR.execute(
+                () -> {
+                    final ZungviAuth.Result result = ZungviAuth.loginWithPassword(email, password);
+                    runOnUiThread(() -> onAuthResult(result));
+                });
+    }
+
+    private void signInWithGoogle() {
+        setBusy(true);
+        GoogleSignIn.requestIdToken(
+                this,
+                BuildConfig.GOOGLE_OAUTH_CLIENT_ID,
+                new GoogleSignIn.Callback() {
+                    @Override
+                    public void onIdToken(@NonNull final String idToken) {
+                        AUTH_EXECUTOR.execute(
+                                () -> {
+                                    final ZungviAuth.Result result =
+                                            ZungviAuth.loginWithGoogle(idToken);
+                                    runOnUiThread(() -> onAuthResult(result));
+                                });
+                    }
+
+                    @Override
+                    public void onCancelled() {
+                        runOnUiThread(
+                                () -> {
+                                    setBusy(false);
+                                    Toast.makeText(
+                                                    WelcomeActivity.this,
+                                                    R.string.google_sign_in_cancelled,
+                                                    Toast.LENGTH_SHORT)
+                                            .show();
+                                });
+                    }
+
+                    @Override
+                    public void onFailure(@Nullable final String message) {
+                        runOnUiThread(
+                                () -> {
+                                    setBusy(false);
+                                    Toast.makeText(
+                                                    WelcomeActivity.this,
+                                                    Strings.isNullOrEmpty(message)
+                                                            ? getString(
+                                                                    R.string.google_sign_in_failed)
+                                                            : message,
+                                                    Toast.LENGTH_LONG)
+                                            .show();
+                                });
+                    }
+                });
+    }
+
+    private void onAuthResult(final ZungviAuth.Result result) {
+        setBusy(false);
+        if (!result.isSuccess()) {
+            Toast.makeText(
+                            this,
+                            Strings.isNullOrEmpty(result.errorMessage)
+                                    ? getString(R.string.account_status_unauthorized)
+                                    : result.errorMessage,
+                            Toast.LENGTH_LONG)
+                    .show();
+            return;
+        }
+        if (xmppConnectionService == null) {
+            Toast.makeText(this, R.string.not_connected_try_again, Toast.LENGTH_LONG).show();
+            return;
+        }
+        // Reuse the account when this JID is already set up, so a second sign-in refreshes the
+        // credential instead of creating a duplicate that fights the first one for the resource.
+        Account account = xmppConnectionService.findAccountByJid(result.jid);
+        if (account == null) {
+            account = new Account(result.jid, result.password);
+            account.setOption(Account.OPTION_DISABLED, false);
+            account.setOption(Account.OPTION_MAGIC_CREATE, false);
+            xmppConnectionService.createAccount(account);
+        } else {
+            account.setPassword(result.password);
+            account.setOption(Account.OPTION_DISABLED, false);
+            xmppConnectionService.updateAccount(account);
+        }
+        final Intent intent = new Intent(this, ConversationsActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        addInviteUri(intent);
+        startActivity(intent);
+        finish();
+    }
+
+    private void setBusy(final boolean busy) {
+        if (binding == null) {
+            return;
+        }
+        binding.progress.setVisibility(busy ? View.VISIBLE : View.GONE);
+        binding.signInZungvi.setEnabled(!busy);
+        binding.signInGoogle.setEnabled(!busy);
+        binding.useExisting.setEnabled(!busy);
+        binding.signInZungvi.setText(busy ? R.string.signing_in : R.string.continue_with_zungvi);
     }
 
     @Override
