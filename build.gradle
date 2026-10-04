@@ -280,6 +280,13 @@ android {
     lint {
         disable 'MissingTranslation', 'InvalidPackage', 'AppCompatResource'
     }
+    testOptions {
+        unitTests {
+            // Robolectric needs the real resource table to resolve strings such as app_name,
+            // which the build generates per flavour rather than declaring in res/.
+            includeAndroidResources = true
+        }
+    }
     buildFeatures {
         buildConfig true
     }

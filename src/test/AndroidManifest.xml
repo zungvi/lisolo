@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- The unit test manifest is merged separately from the application manifest, so it does not
+         inherit the override in src/main/AndroidManifest.xml and the merge fails on heifwriter's
+         minSdk 28. Repeat it here so unit tests can be built with includeAndroidResources. -->
+    <uses-sdk tools:overrideLibrary="androidx.heifwriter" />
+
+</manifest>

@@ -30,7 +30,7 @@
 
 <resources>
     <string name="pref_about_message" translatable="false">
-			Zungvi Messenger is based on Snikket and Conversations, free and open source XMPP clients. (https://snikket.org, https://conversations.im)
+			%1$s is based on Snikket and Conversations, free and open source XMPP clients. (https://snikket.org, https://conversations.im)
 			\n\nCopyright © 2014-2026 Daniel Gultsch
 			\n\nThis program is free software: you can redistribute it and/or modify
 			it under the terms of the GNU General Public License as published by

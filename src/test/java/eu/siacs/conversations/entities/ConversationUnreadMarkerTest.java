@@ -6,7 +6,18 @@ import static org.junit.Assert.assertTrue;
 
 import eu.siacs.conversations.xmpp.Jid;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.annotation.Config;
+import org.robolectric.annotation.ConscryptMode;
 
+/**
+ * Conversation stores its flags through setAttribute, which is backed by org.json. The stub
+ * android.jar throws on those methods, so this runs under Robolectric for a real implementation.
+ */
+@RunWith(RobolectricTestRunner.class)
+@Config(manifest = Config.NONE, sdk = 23)
+@ConscryptMode(ConscryptMode.Mode.OFF)
 public class ConversationUnreadMarkerTest {
 
     @Test
