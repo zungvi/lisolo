@@ -85,6 +85,11 @@ dependencies {
     implementation 'org.hsluv:hsluv:1.0'
     implementation 'org.jxmpp:jxmpp-jid:1.1.0'
     implementation 'org.jxmpp:jxmpp-stringprep-libidn:1.1.0'
+    // On-device translation for the AI features. Standalone ML Kit, so it works without Play
+    // Services; the per-language models are downloaded on first use rather than shipped in the
+    // APK. Swahili goes through here instead of Zungvi AI, which mistranslates it.
+    implementation 'com.google.mlkit:translate:17.0.3'
+    implementation 'com.google.mlkit:language-id:17.0.6'
     implementation 'org.minidns:minidns-client:1.1.1'
     implementation 'org.minidns:minidns-dnssec:1.1.1'
     implementation 'org.osmdroid:osmdroid-android:6.1.20'

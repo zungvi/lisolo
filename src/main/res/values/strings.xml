@@ -1056,6 +1056,15 @@
     <string name="no_certificate_selected">No client certificate selected!</string>
     <string name="pref_title_interface">Interface</string>
     <string name="pref_summary_appearance">Theme, Colors, Screenshots, Input</string>
+    <string name="ai_translate">Translate</string>
+    <string name="ai_translation_title">Translation</string>
+    <string name="ai_translated_on_device">On this device</string>
+    <string name="ai_already_in_your_language">This message is already in your language.</string>
+    <string name="ai_catch_up">Catch up</string>
+    <string name="ai_catch_up_title">What you missed</string>
+    <string name="ai_catch_up_too_few">There is not much to catch up on here.</string>
+    <string name="ai_generic_error">Zungvi AI could not answer. Please try again.</string>
+    <string name="ai_scam_warning">This looks like it could be a scam. Do not share codes, PINs or payment details.</string>
     <string name="pref_title_ai">AI features</string>
     <string name="pref_summary_ai">Translation, Catch up, Scam warnings</string>
     <string name="pref_ai_enabled">Use AI features</string>

@@ -73,7 +73,12 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.MoreExecutors;
 import de.gultsch.common.Linkify;
 import de.gultsch.common.Patterns;
+import eu.siacs.conversations.AppSettings;
 import eu.siacs.conversations.Config;
+import eu.siacs.conversations.ai.AiTask;
+import eu.siacs.conversations.ai.CatchUp;
+import eu.siacs.conversations.ai.MessageTranslator;
+import eu.siacs.conversations.ai.ScamTriage;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.crypto.PgpEngine;
 import eu.siacs.conversations.crypto.axolotl.AxolotlService;
@@ -158,6 +163,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -648,6 +654,17 @@ public class ConversationFragment extends XmppFragment
                         menuTogglePinned.setTitle(R.string.add_to_favorites);
                     }
                     menuMarkUnread.setVisible(c.isRead());
+                    // Only worth offering on a group with a real backlog; a 1:1 chat or a quiet
+                    // room is faster to read than to summarise.
+                    final int backlog;
+                    synchronized (ConversationFragment.this.messageList) {
+                        backlog = ConversationFragment.this.messageList.size();
+                    }
+                    menu.findItem(R.id.action_catch_up)
+                            .setVisible(
+                                    c.getMode() == Conversational.MODE_MULTI
+                                            && backlog >= CatchUp.MIN_MESSAGES
+                                            && new AppSettings(requireContext()).isAiCatchUp());
                 }
 
                 @Override
@@ -670,6 +687,9 @@ public class ConversationFragment extends XmppFragment
                         case R.id.attach_record_voice:
                         case R.id.attach_location:
                             handleAttachmentSelection(menuItem);
+                            break;
+                        case R.id.action_catch_up:
+                            catchUpOnConversation();
                             break;
                         case R.id.action_search:
                             startSearch();
@@ -1621,6 +1641,7 @@ public class ConversationFragment extends XmppFragment
             final MenuItem reportAndBlock = menu.findItem(R.id.action_report_and_block);
             final MenuItem openWith = menu.findItem(R.id.open_with);
             final MenuItem copyMessage = menu.findItem(R.id.copy_message);
+            final MenuItem translateMessage = menu.findItem(R.id.translate_message);
             final MenuItem copyLink = menu.findItem(R.id.copy_link);
             final MenuItem quoteMessage = menu.findItem(R.id.quote_message);
             final MenuItem retryDecryption = menu.findItem(R.id.retry_decryption);
@@ -1699,6 +1720,11 @@ public class ConversationFragment extends XmppFragment
                     && !unInitiatedButKnownSize
                     && t == null) {
                 copyMessage.setVisible(true);
+                // Same conditions as copying: there has to be readable text to work with.
+                translateMessage.setVisible(
+                        new AppSettings(requireContext()).isAiTranslation()
+                                && !showError
+                                && !m.getBody().trim().isEmpty());
                 quoteMessage.setVisible(!showError && !MessageUtils.prepareQuote(m).isEmpty());
                 final var firstUri = Iterables.getFirst(Linkify.getLinks(m.getBody()), null);
                 if (firstUri != null) {
@@ -1804,6 +1830,10 @@ public class ConversationFragment extends XmppFragment
             }
             case R.id.copy_message -> {
                 ShareUtil.copyToClipboard(requireXmppActivity(), selectedMessage);
+                yield true;
+            }
+            case R.id.translate_message -> {
+                translateMessage(selectedMessage);
                 yield true;
             }
             case R.id.copy_link -> {
@@ -2898,6 +2928,7 @@ public class ConversationFragment extends XmppFragment
         if (messageListAdapter.updatePreferences()) {
             ++this.messageRenderGeneration;
         }
+        maybeCheckForScam(this.conversation);
         refresh(false);
         requireXmppActivity().invalidateOptionsMenu();
         this.conversation.messagesLoaded.set(true);
@@ -3935,6 +3966,123 @@ public class ConversationFragment extends XmppFragment
         } else {
             return c.getMucOptions().mamSupport();
         }
+    }
+
+
+    /** Translates one message and shows the result in a sheet. */
+    private void translateMessage(final Message message) {
+        if (message == null) {
+            return;
+        }
+        final String body = message.getBody();
+        if (body == null || body.trim().isEmpty()) {
+            return;
+        }
+        final AiResultSheet sheet = AiResultSheet.create(R.string.ai_translation_title);
+        sheet.show(getParentFragmentManager(), AiResultSheet.TAG);
+        sheet.showOriginal(body.trim());
+        MessageTranslator.translate(
+                body,
+                Locale.getDefault(),
+                (outcome, onDevice) -> {
+                    if (!isAdded()) {
+                        return;
+                    }
+                    // Nothing to show for a message already in the reader's language; saying so
+                    // beats a sheet that repeats the message back at them.
+                    if (!outcome.isSuccess()
+                            && "already_in_target".equals(outcome.errorMessage)) {
+                        sheet.dismissAllowingStateLoss();
+                        Toast.makeText(
+                                        requireContext(),
+                                        R.string.ai_already_in_your_language,
+                                        Toast.LENGTH_SHORT)
+                                .show();
+                        return;
+                    }
+                    // Say when the text never left the phone: the settings screen promises
+                    // exactly that for Swahili, so it should be visible when it happens.
+                    sheet.deliver(
+                            outcome,
+                            onDevice ? getString(R.string.ai_translated_on_device) : null);
+                });
+    }
+
+    /** Summarises the backlog of the open group chat. */
+    private void catchUpOnConversation() {
+        final Conversation conversation = this.conversation;
+        if (conversation == null) {
+            return;
+        }
+        final List<Message> messages;
+        synchronized (this.messageList) {
+            messages = new ArrayList<>(this.messageList);
+        }
+        if (messages.size() < CatchUp.MIN_MESSAGES) {
+            Toast.makeText(requireContext(), R.string.ai_catch_up_too_few, Toast.LENGTH_SHORT)
+                    .show();
+            return;
+        }
+        final AiResultSheet sheet = AiResultSheet.create(R.string.ai_catch_up_title);
+        sheet.show(getParentFragmentManager(), AiResultSheet.TAG);
+        CatchUp.summarise(
+                messages,
+                Locale.getDefault(),
+                outcome -> {
+                    if (isAdded()) {
+                        sheet.deliver(outcome, null);
+                    }
+                });
+    }
+
+    /**
+     * Warns about a stranger's opening message when it looks like fraud.
+     *
+     * <p>Only runs for senders outside the roster, only on their first message, and the verdict
+     * is cached on the conversation so reopening the chat does not send the text again.
+     */
+    private void maybeCheckForScam(final Conversation conversation) {
+        if (conversation == null
+                || conversation.getMode() != Conversational.MODE_SINGLE
+                || !conversation.isWithStranger()
+                || !new AppSettings(requireContext()).isAiScamTriage()
+                || conversation.getBooleanAttribute(Conversation.ATTRIBUTE_SCAM_CHECKED, false)) {
+            return;
+        }
+        final Message first = firstReceivedMessage(conversation);
+        if (first == null) {
+            return;
+        }
+        final String body = first.getBody();
+        if (body == null) {
+            return;
+        }
+        conversation.setAttribute(Conversation.ATTRIBUTE_SCAM_CHECKED, true);
+        ScamTriage.check(
+                body,
+                likelyScam -> {
+                    conversation.setAttribute(Conversation.ATTRIBUTE_SCAM_LIKELY, likelyScam);
+                    if (likelyScam && isAdded() && this.conversation == conversation) {
+                        showScamWarning();
+                    }
+                });
+    }
+
+    private Message firstReceivedMessage(final Conversation conversation) {
+        synchronized (this.messageList) {
+            for (final Message message : this.messageList) {
+                if (message.getStatus() == Message.STATUS_RECEIVED
+                        && message.getType() == Message.TYPE_TEXT
+                        && !message.isDeleted()) {
+                    return message;
+                }
+            }
+        }
+        return null;
+    }
+
+    private void showScamWarning() {
+        showSnackbar(R.string.ai_scam_warning, 0, null);
     }
 
     protected void showSnackbar(
