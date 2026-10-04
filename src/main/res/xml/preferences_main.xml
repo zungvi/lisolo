@@ -7,6 +7,12 @@
         app:summary="@string/pref_summary_appearance"
         app:title="@string/pref_title_interface" />
     <Preference
+        android:icon="@drawable/ic_auto_awesome_24dp"
+        android:key="ai"
+        app:fragment="eu.siacs.conversations.ui.fragment.settings.AiSettingsFragment"
+        app:summary="@string/pref_summary_ai"
+        app:title="@string/pref_title_ai" />
+    <Preference
         android:icon="@drawable/ic_security_24dp"
         app:fragment="eu.siacs.conversations.ui.fragment.settings.SecuritySettingsFragment"
         app:summary="@string/pref_summary_security"

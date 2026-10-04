@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:tint="?attr/colorControlNormal"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <!-- A message and its translation, as two solid bubbles. Filled to sit with the rest of the
+         settings icons, and language-neutral: a Latin-alphabet glyph would read oddly in an app
+         used mostly in Swahili, Lingala and French. -->
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M180,120L540,120Q600,120 600,180L600,400Q600,460 540,460L300,460L160,560L180,460Q120,460 120,400L120,180Q120,120 180,120Z" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M420,520L780,520Q840,520 840,580L840,800Q840,860 780,860L800,960L660,860L420,860Q360,860 360,800L360,580Q360,520 420,520Z" />
+</vector>

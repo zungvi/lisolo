@@ -138,6 +138,20 @@ android {
         def appName = "Lisolo"
         resValue "string", "app_name", appName
         buildConfigField "String", "APP_NAME", "\"$appName\""
+
+        buildConfigField "String", "ZUNGVI_AI_BASE_URL", "\"https://ai.zungvi.net/v1\""
+        // Read from local.properties (gitignored) so the key never lands in the repository.
+        // This is a development stop-gap: anything compiled into the APK can be extracted from
+        // it, so before release the AI API has to authenticate the signed-in user through the
+        // Zungvi account API instead of shipping one shared key to every device.
+        def aiToken = ""
+        def localProperties = rootProject.file("local.properties")
+        if (localProperties.exists()) {
+            Properties localProps = new Properties()
+            localProperties.withInputStream { localProps.load(it) }
+            aiToken = localProps.getProperty("zungvi.ai.token", "")
+        }
+        buildConfigField "String", "ZUNGVI_AI_TOKEN", "\"$aiToken\""
     }
 
     splits {

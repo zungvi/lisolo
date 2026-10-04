@@ -10,6 +10,7 @@ import com.google.common.base.Strings;
 
 import eu.siacs.conversations.BuildConfig;
 import eu.siacs.conversations.R;
+import eu.siacs.conversations.ai.ZungviAi;
 
 public class MainSettingsFragment extends PreferenceFragmentCompat {
 
@@ -19,10 +20,14 @@ public class MainSettingsFragment extends PreferenceFragmentCompat {
         final var about = findPreference("about");
         final var connection = findPreference("connection");
         final var up = findPreference("up");
-        if (about == null || connection == null || up == null) {
+        final var ai = findPreference("ai");
+        if (about == null || connection == null || up == null || ai == null) {
             throw new IllegalStateException(
                     "The preference resource file is missing some preferences");
         }
+        // Builds without a Zungvi AI endpoint configured have nothing to offer here, so the
+        // whole section stays hidden rather than leading to toggles that cannot work.
+        ai.setVisible(ZungviAi.isConfigured());
         about.setTitle(getString(R.string.title_activity_about_x, BuildConfig.APP_NAME));
         about.setSummary(
                 String.format(

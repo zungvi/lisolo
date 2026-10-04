@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <SwitchPreferenceCompat
+        android:defaultValue="@bool/ai_enabled"
+        android:icon="@drawable/ic_auto_awesome_24dp"
+        android:key="ai_enabled"
+        android:summary="@string/pref_ai_enabled_summary"
+        android:title="@string/pref_ai_enabled" />
+
+    <!-- No category around these three: an untitled one still reserves the height of a title and
+         leaves a visible gap, and a titled one would only restate the screen. Greying out when
+         the master switch is off already marks them as dependent. -->
+        <SwitchPreferenceCompat
+            android:defaultValue="@bool/ai_translation"
+            android:dependency="ai_enabled"
+            android:icon="@drawable/ic_translate_24dp"
+            android:key="ai_translation"
+            android:summary="@string/pref_ai_translation_summary"
+            android:title="@string/pref_ai_translation" />
+
+        <SwitchPreferenceCompat
+            android:defaultValue="@bool/ai_catch_up"
+            android:dependency="ai_enabled"
+            android:icon="@drawable/ic_description_24dp"
+            android:key="ai_catch_up"
+            android:summary="@string/pref_ai_catch_up_summary"
+            android:title="@string/pref_ai_catch_up" />
+
+        <SwitchPreferenceCompat
+            android:defaultValue="@bool/ai_scam_triage"
+            android:dependency="ai_enabled"
+            android:icon="@drawable/ic_report_24dp"
+            android:key="ai_scam_triage"
+            android:summary="@string/pref_ai_scam_triage_summary"
+            android:title="@string/pref_ai_scam_triage" />
+
+    <PreferenceCategory android:title="@string/pref_ai_category_privacy">
+        <Preference
+            android:key="ai_privacy_notice"
+            android:persistent="false"
+            android:selectable="false"
+            android:summary="@string/pref_ai_privacy_notice" />
+    </PreferenceCategory>
+
+</PreferenceScreen>

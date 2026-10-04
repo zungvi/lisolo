@@ -66,6 +66,13 @@ public class AppSettings {
     public static final String SHOW_AVATARS_ACCOUNTS = "show_avatars_accounts";
     public static final String CALL_INTEGRATION = "call_integration";
     public static final String ALIGN_START = "align_start";
+    // AI features are opt-in and off by default. AI_ENABLED is the master switch; the per-feature
+    // keys below only take effect while it is on.
+    public static final String AI_ENABLED = "ai_enabled";
+    public static final String AI_TRANSLATION = "ai_translation";
+    public static final String AI_CATCH_UP = "ai_catch_up";
+    public static final String AI_SCAM_TRIAGE = "ai_scam_triage";
+
     public static final String BACKUP_LOCATION = "backup_location";
     public static final String AUTO_ACCEPT_FILE_SIZE = "auto_accept_file_size";
     public static final String VIDEO_COMPRESSION = "video_compression";
@@ -252,6 +259,23 @@ public class AppSettings {
         } else {
             return AppCompatDelegate.MODE_NIGHT_YES;
         }
+    }
+
+    /** Master switch. Every other AI accessor already accounts for this, so callers need not. */
+    public boolean isAiEnabled() {
+        return getBooleanPreference(AI_ENABLED, R.bool.ai_enabled);
+    }
+
+    public boolean isAiTranslation() {
+        return isAiEnabled() && getBooleanPreference(AI_TRANSLATION, R.bool.ai_translation);
+    }
+
+    public boolean isAiCatchUp() {
+        return isAiEnabled() && getBooleanPreference(AI_CATCH_UP, R.bool.ai_catch_up);
+    }
+
+    public boolean isAiScamTriage() {
+        return isAiEnabled() && getBooleanPreference(AI_SCAM_TRIAGE, R.bool.ai_scam_triage);
     }
 
     private boolean getBooleanPreference(@NonNull final String name, @BoolRes final int res) {

@@ -1,0 +1,14 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:tint="?attr/colorControlNormal"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <!-- Four-point sparkle with a smaller companion: the conventional "AI assist" mark. -->
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M380,100L452,308L660,380L452,452L380,660L308,452L100,380L308,308Z" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M740,560L783,677L900,720L783,763L740,880L697,763L580,720L697,677Z" />
+</vector>

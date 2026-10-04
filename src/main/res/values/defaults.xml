@@ -53,4 +53,11 @@
     <bool name="require_tls_v1_3">true</bool>
     <bool name="call_integration">true</bool>
     <bool name="align_start">false</bool>
+    <!-- AI is off until the user turns it on: the server-side features send message text to
+         Zungvi, which is not something to opt somebody into by default. The per-feature
+         defaults are true so that flipping the master switch gives a working set at once. -->
+    <bool name="ai_enabled">false</bool>
+    <bool name="ai_translation">true</bool>
+    <bool name="ai_catch_up">true</bool>
+    <bool name="ai_scam_triage">true</bool>
 </resources>
