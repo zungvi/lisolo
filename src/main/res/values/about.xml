@@ -42,7 +42,8 @@
 			GNU General Public License for more details.
 			\n\nYou should have received a copy of the GNU General Public License
 			along with this program. If not, see https://www.gnu.org/licenses
-			\n\nDownload the upstream source code at https://github.com/snikket-im/snikket-android
+			\n\nThis is a modified version. Download its complete source code at https://github.com/zungvi/lisolo
+			\n\nThe upstream projects it is based on are at https://github.com/snikket-im/snikket-android
 			\n\n\nThird-party libraries:
 
 			\n\nAndroid Jetpack\nhttps://android.googlesource.com/platform/frameworks/support\n(Apache License, Version 2.0)
