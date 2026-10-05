@@ -297,4 +297,173 @@ public class CatchUpTest {
     public void markerOnAnEmptyConversationStillYieldsNothing() {
         assertTrue(CatchUp.unread(List.of(), true).isEmpty());
     }
+
+    // --- must agree with the unread badge on the row ----------------------------------------
+
+    /**
+     * The reported bug: a group showed unread messages and offered Catch up, which then claimed
+     * there was nothing to summarise. Conversation.unreadCount() steps over a read call entry
+     * and keeps counting, so one call among the recent messages hid every unread message behind
+     * it from a scan that stopped at the first read row.
+     */
+    @Test
+    public void readCallEntriesDoNotHideTheUnreadRunBehindThem() {
+        final Conversation c = groupConversation();
+        final List<Message> messages = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            final Message m = received(c, "bruno", "unread " + i);
+            m.markUnread();
+            messages.add(m);
+        }
+        // A finished call sits among them and is already read.
+        final Message call = received(c, "marc", "");
+        call.setType(Message.TYPE_RTP_SESSION);
+        messages.add(3, call);
+
+        final List<Message> unread = CatchUp.unread(messages);
+
+        assertEquals(6, unread.size());
+        assertEquals("unread 0", unread.get(0).getBody());
+        assertEquals("unread 5", unread.get(unread.size() - 1).getBody());
+    }
+
+    @Test
+    public void countMatchesTheConversationsOwnUnreadCount() {
+        final Conversation c = groupConversation();
+        for (int i = 0; i < 4; i++) {
+            final Message m = received(c, "bruno", "u" + i);
+            m.markUnread();
+            c.add(m);
+        }
+        final Message call = received(c, "marc", "");
+        call.setType(Message.TYPE_RTP_SESSION);
+        c.add(call);
+
+        final List<Message> messages = new ArrayList<>();
+        c.populateWithMessages(messages);
+
+        assertEquals(c.unreadCount(), CatchUp.unread(messages).size());
+    }
+
+    /** A read ordinary message still ends the run - only calls are stepped over. */
+    @Test
+    public void aReadTextMessageStillEndsTheRun() {
+        final Conversation c = groupConversation();
+        final Message old = received(c, "bruno", "already read");
+        final Message fresh = received(c, "marc", "new");
+        fresh.markUnread();
+
+        final List<Message> unread = CatchUp.unread(List.of(old, fresh));
+
+        assertEquals(1, unread.size());
+        assertEquals("new", unread.get(0).getBody());
+    }
+
+    // --- deciding whether a summary is worth asking for --------------------------------------
+
+    /** The reported case: one long message is exactly what somebody wants condensed. */
+    @Test
+    public void oneLongMessageIsWorthSummarising() {
+        final Conversation c = groupConversation();
+        final Message m = received(c, "bruno", "x".repeat(CatchUp.MIN_SUMMARY_CHARS));
+        m.markUnread();
+
+        assertTrue(CatchUp.isWorthSummarising(List.of(m)));
+    }
+
+    @Test
+    public void oneShortMessageIsFasterToJustRead() {
+        final Conversation c = groupConversation();
+        final Message m = received(c, "bruno", "see you at 3");
+        m.markUnread();
+
+        assertFalse(CatchUp.isWorthSummarising(List.of(m)));
+    }
+
+    /**
+     * Counting rows accepted these and then produced an empty transcript, so the action was
+     * offered and immediately reported that there was nothing to summarise.
+     */
+    @Test
+    public void severalPhotosAreNotWorthSummarising() {
+        final Conversation c = groupConversation();
+        final List<Message> photos = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            final Message m = received(c, "bruno", "/path/image" + i + ".jpg");
+            m.setType(Message.TYPE_IMAGE);
+            m.markUnread();
+            photos.add(m);
+        }
+
+        assertFalse(CatchUp.isWorthSummarising(photos));
+    }
+
+    @Test
+    public void severalShortMessagesAddUp() {
+        final Conversation c = groupConversation();
+        final List<Message> messages = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            messages.add(received(c, "bruno", "a reasonably sized line of chat number " + i));
+        }
+
+        assertTrue(CatchUp.isWorthSummarising(messages));
+    }
+
+    @Test
+    public void nothingAtAllIsNotWorthSummarising() {
+        assertFalse(CatchUp.isWorthSummarising(List.of()));
+    }
+
+    // --- a running app, messages read, then more arrive --------------------------------------
+
+    /**
+     * The live cycle, without a restart: a batch arrives, the user reads it, a second batch
+     * arrives. The second batch has to be picked up on its own, and must not drag the already
+     * read first batch back in with it.
+     */
+    @Test
+    public void newMessagesAfterReadingAreFoundWithoutARestart() {
+        final Conversation c = groupConversation();
+        final List<Message> thread = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            final Message m = received(c, "bruno", "first batch message number " + i);
+            m.markUnread();
+            thread.add(m);
+        }
+        assertEquals(6, CatchUp.unread(thread).size());
+
+        // The user opens the chat; everything becomes read.
+        for (final Message m : thread) {
+            m.markRead();
+        }
+        assertTrue(CatchUp.unread(thread).isEmpty());
+
+        // More arrive while the app is still running. MessageParser marks each one unread as it
+        // lands, which is what this stands in for.
+        for (int i = 0; i < 3; i++) {
+            final Message m = received(c, "marc", "second batch message number " + i);
+            m.markUnread();
+            thread.add(m);
+        }
+
+        final List<Message> unread = CatchUp.unread(thread);
+
+        assertEquals(3, unread.size());
+        assertEquals("second batch message number 0", unread.get(0).getBody());
+        assertEquals("second batch message number 2", unread.get(2).getBody());
+    }
+
+    @Test
+    public void readingTheSecondBatchClearsItAgain() {
+        final Conversation c = groupConversation();
+        final Message m = received(c, "bruno", "x".repeat(CatchUp.MIN_SUMMARY_CHARS));
+        m.markUnread();
+        final List<Message> thread = new ArrayList<>(List.of(m));
+        assertTrue(CatchUp.isWorthSummarising(CatchUp.unread(thread)));
+
+        m.markRead();
+
+        assertTrue(CatchUp.unread(thread).isEmpty());
+        assertFalse(CatchUp.isWorthSummarising(CatchUp.unread(thread)));
+    }
 }

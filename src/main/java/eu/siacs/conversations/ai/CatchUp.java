@@ -3,6 +3,7 @@ package eu.siacs.conversations.ai;
 import androidx.annotation.NonNull;
 import eu.siacs.conversations.entities.Message;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -16,8 +17,18 @@ public final class CatchUp {
      */
     static final int MAX_MESSAGES = 120;
 
-    /** Below this a reader is faster off just scrolling. */
-    public static final int MIN_MESSAGES = 5;
+    /**
+     * How much unread text makes a summary worth asking for.
+     *
+     * <p>Measured in characters of actual message text, not in number of messages. A count of
+     * rows answers the wrong question twice over: it refuses a single long message that is
+     * exactly what somebody wants condensed, and it accepts six photos, whose transcript is
+     * empty and which therefore produce nothing to summarise.
+     *
+     * <p>Roughly forty words. Below that, reading the messages is quicker than a round trip to
+     * the server and a paraphrase of them.
+     */
+    public static final int MIN_SUMMARY_CHARS = 200;
 
     private static final int MAX_BODY_CHARS = 600;
 
@@ -52,16 +63,23 @@ public final class CatchUp {
     }
 
     public static List<Message> unread(final List<Message> messages) {
-        int firstUnread = -1;
+        // Mirrors Conversation.unreadCount(), which is what paints the badge on the row: a read
+        // call entry is stepped over rather than treated as the end of the unread run. Stopping
+        // at one made catch-up report nothing to summarise on a conversation whose badge said
+        // otherwise, because a single call among the recent messages hid everything behind it.
+        final List<Message> unread = new ArrayList<>();
         for (int i = messages.size() - 1; i >= 0; i--) {
-            if (messages.get(i).isRead()) {
+            final Message message = messages.get(i);
+            if (message.isRead()) {
+                if (message.getType() == Message.TYPE_RTP_SESSION) {
+                    continue;
+                }
                 break;
             }
-            firstUnread = i;
+            unread.add(message);
         }
-        return firstUnread < 0
-                ? List.of()
-                : new ArrayList<>(messages.subList(firstUnread, messages.size()));
+        Collections.reverse(unread);
+        return unread;
     }
 
     /**
@@ -131,6 +149,14 @@ public final class CatchUp {
             item = item.substring(1).trim();
         }
         return item.trim();
+    }
+
+    /**
+     * Whether these messages contain enough text to be worth summarising. Callers use this to
+     * decide whether to offer the action at all, so that it is never offered and then refused.
+     */
+    public static boolean isWorthSummarising(final List<Message> messages) {
+        return transcript(messages).length() >= MIN_SUMMARY_CHARS;
     }
 
     public static void summarise(

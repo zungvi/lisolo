@@ -593,9 +593,14 @@ public class ConversationsOverviewFragment extends XmppFragment {
     private boolean onConversationLongClick(final View view, final Conversation conversation) {
         // Always one or the other, so the gesture is never a no-op.
         final boolean isRead = conversation.isRead();
+        // Gated on there actually being enough to summarise. Offering the action and then
+        // refusing it with "not much to catch up on" is worse than not offering it; that gate
+        // was dropped earlier only because the menu would otherwise be empty, which the
+        // read/unread toggle above now prevents.
         final boolean canCatchUp =
                 conversation.getMode() == Conversational.MODE_MULTI
-                        && new AppSettings(requireContext()).isAiCatchUp();
+                        && new AppSettings(requireContext()).isAiCatchUp()
+                        && CatchUp.isWorthSummarising(unreadOf(conversation));
         final PopupMenu popup = new PopupMenu(requireContext(), view);
         popup.inflate(R.menu.conversation_list_context);
         popup.getMenu().findItem(R.id.action_mark_unread).setVisible(isRead);
@@ -654,7 +659,7 @@ public class ConversationsOverviewFragment extends XmppFragment {
                     .show();
             return;
         }
-        if (unread.size() < CatchUp.MIN_MESSAGES) {
+        if (!CatchUp.isWorthSummarising(unread)) {
             Toast.makeText(requireContext(), R.string.ai_catch_up_too_few, Toast.LENGTH_SHORT)
                     .show();
             return;
