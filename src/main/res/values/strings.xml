@@ -1067,6 +1067,7 @@
     <string name="ai_catch_up_done">Settled</string>
     <string name="ai_catch_up_open">Still open</string>
     <string name="ai_generic_error">Zungvi AI could not answer. Please try again.</string>
+    <string name="ai_scam_dismiss">Dismiss</string>
     <string name="ai_scam_warning">This looks like it could be a scam. Do not share codes, PINs or payment details.</string>
     <string name="pref_title_ai">AI features</string>
     <string name="pref_summary_ai">Translation, Catch up, Scam warnings</string>

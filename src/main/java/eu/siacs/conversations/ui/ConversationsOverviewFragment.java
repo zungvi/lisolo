@@ -36,6 +36,11 @@ import android.content.Intent;
 import android.graphics.Canvas;
 import android.os.Bundle;
 import android.util.Log;
+import java.util.Locale;
+import eu.siacs.conversations.entities.Message;
+import eu.siacs.conversations.ai.CatchUp;
+import eu.siacs.conversations.ai.AiTask;
+import androidx.appcompat.widget.PopupMenu;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -348,6 +353,7 @@ public class ConversationsOverviewFragment extends XmppFragment {
                                 "Activity does not implement OnConversationSelected");
                     }
                 });
+        this.conversationsAdapter.setConversationLongClickListener(this::onConversationLongClick);
         this.binding.list.setAdapter(this.conversationsAdapter);
         this.binding.list.setLayoutManager(
                 new LinearLayoutManager(getActivity(), LinearLayoutManager.VERTICAL, false));
@@ -516,4 +522,71 @@ public class ConversationsOverviewFragment extends XmppFragment {
             binding.fab.clearAnimation();
         }
     }
+
+    /**
+     * Offers "Catch up" on a group with unread messages.
+     *
+     * <p>This lives here rather than inside the chat because opening a conversation marks it
+     * read: by the time the user is looking at the thread there is no unread range left to
+     * summarise, and "what did I miss" is a question asked before going in, not after.
+     *
+     * @return false when there is nothing to offer, so the long press does nothing at all
+     *     rather than opening an empty menu.
+     */
+    private boolean onConversationLongClick(final View view, final Conversation conversation) {
+        final List<Message> unread = unreadOf(conversation);
+        if (conversation.getMode() != Conversational.MODE_MULTI
+                || unread.size() < CatchUp.MIN_MESSAGES
+                || !new AppSettings(requireContext()).isAiCatchUp()) {
+            return false;
+        }
+        final PopupMenu popup = new PopupMenu(requireContext(), view);
+        popup.inflate(R.menu.conversation_list_context);
+        popup.setOnMenuItemClickListener(
+                item -> {
+                    if (item.getItemId() == R.id.action_catch_up) {
+                        catchUp(conversation, unread);
+                        return true;
+                    }
+                    return false;
+                });
+        popup.show();
+        return true;
+    }
+
+    private List<Message> unreadOf(final Conversation conversation) {
+        final List<Message> messages = new ArrayList<>();
+        conversation.populateWithMessages(messages);
+        return CatchUp.unread(messages, conversation.isMarkedUnread());
+    }
+
+    private void catchUp(final Conversation conversation, final List<Message> unread) {
+        final AiResultSheet sheet = AiResultSheet.create(R.string.ai_catch_up_title);
+        sheet.show(getParentFragmentManager(), AiResultSheet.TAG);
+        CatchUp.summarise(
+                unread,
+                Locale.getDefault(),
+                outcome -> {
+                    if (!isAdded()) {
+                        return;
+                    }
+                    sheet.deliver(formatSummary(outcome), null);
+                });
+    }
+
+    private AiTask.Outcome formatSummary(final AiTask.Outcome outcome) {
+        if (!outcome.isSuccess()) {
+            return outcome;
+        }
+        final String formatted =
+                CatchUp.format(
+                        outcome.text,
+                        getString(R.string.ai_catch_up_done),
+                        getString(R.string.ai_catch_up_open));
+        return formatted.isEmpty()
+                ? AiTask.Outcome.failure(getString(R.string.ai_catch_up_nothing_missed))
+                : AiTask.Outcome.success(formatted);
+    }
+
+
 }

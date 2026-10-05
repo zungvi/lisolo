@@ -2,6 +2,7 @@ package eu.siacs.conversations.ai;
 
 import androidx.annotation.NonNull;
 import eu.siacs.conversations.entities.Message;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -21,6 +22,47 @@ public final class CatchUp {
     private static final int MAX_BODY_CHARS = 600;
 
     private CatchUp() {}
+
+    /**
+     * How far back to go when the user marked a chat unread by hand.
+     *
+     * <p>That marker is a single flag on the conversation with no position in the thread, so
+     * there is no range to recover - only an intention to come back to it. A bounded window of
+     * the most recent messages is the honest answer.
+     */
+    static final int MARKED_UNREAD_WINDOW = 25;
+
+    /**
+     * The messages the reader has not seen yet, oldest first.
+     *
+     * <p>Taken from the conversation list, where the unread flags are still intact. Opening a
+     * chat marks everything read within moments, so asking this question from inside the chat
+     * means asking it too late.
+     *
+     * @param markedUnread whether the user flagged the conversation unread by hand. Per-message
+     *     flags win when there are any, because they give a real boundary.
+     */
+    public static List<Message> unread(final List<Message> messages, final boolean markedUnread) {
+        final List<Message> unread = unread(messages);
+        if (!unread.isEmpty() || !markedUnread || messages.isEmpty()) {
+            return unread;
+        }
+        final int from = Math.max(0, messages.size() - MARKED_UNREAD_WINDOW);
+        return new ArrayList<>(messages.subList(from, messages.size()));
+    }
+
+    public static List<Message> unread(final List<Message> messages) {
+        int firstUnread = -1;
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            if (messages.get(i).isRead()) {
+                break;
+            }
+            firstUnread = i;
+        }
+        return firstUnread < 0
+                ? List.of()
+                : new ArrayList<>(messages.subList(firstUnread, messages.size()));
+    }
 
     /**
      * Turns the model's marker format into something a person would read.

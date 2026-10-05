@@ -178,4 +178,123 @@ public class CatchUpTest {
 
         assertTrue(formatted.startsWith("Réglé"));
     }
+
+    // --- selecting only what was actually missed ---------------------------------------------
+
+    @Test
+    public void unreadReturnsOnlyTheTailThatWasNotRead() {
+        final Conversation c = groupConversation();
+        // Message.read defaults to true, so the unread ones are marked explicitly.
+        final Message read1 = received(c, "bruno", "old one");
+        final Message read2 = received(c, "marc", "old two");
+        final Message new1 = received(c, "bruno", "new one");
+        final Message new2 = received(c, "marc", "new two");
+        new1.markUnread();
+        new2.markUnread();
+
+        final List<Message> unread = CatchUp.unread(List.of(read1, read2, new1, new2));
+
+        assertEquals(2, unread.size());
+        assertEquals("new one", unread.get(0).getBody());
+        assertEquals("new two", unread.get(1).getBody());
+    }
+
+    @Test
+    public void everythingReadMeansNothingWasMissed() {
+        final Conversation c = groupConversation();
+        final Message a = received(c, "bruno", "one");
+        final Message b = received(c, "marc", "two");
+        a.markRead();
+        b.markRead();
+
+        assertTrue(CatchUp.unread(List.of(a, b)).isEmpty());
+    }
+
+    @Test
+    public void everythingUnreadReturnsEverything() {
+        final Conversation c = groupConversation();
+        final Message a = received(c, "bruno", "one");
+        final Message b = received(c, "marc", "two");
+        a.markUnread();
+        b.markUnread();
+
+        assertEquals(2, CatchUp.unread(List.of(a, b)).size());
+    }
+
+    /**
+     * Only the unbroken run at the end counts. An older message left unread behind ones that were
+     * read is not something the user "missed" on this visit.
+     */
+    @Test
+    public void onlyTheTrailingRunOfUnreadCounts() {
+        final Conversation c = groupConversation();
+        final Message strayUnread = received(c, "bruno", "stray");
+        strayUnread.markUnread();
+        final Message read = received(c, "marc", "read later");
+        final Message fresh = received(c, "bruno", "fresh");
+        fresh.markUnread();
+
+        final List<Message> unread = CatchUp.unread(List.of(strayUnread, read, fresh));
+
+        assertEquals(1, unread.size());
+        assertEquals("fresh", unread.get(0).getBody());
+    }
+
+    @Test
+    public void emptyConversationHasNothingUnread() {
+        assertTrue(CatchUp.unread(List.of()).isEmpty());
+    }
+
+    // --- "mark as unread", which sets a flag on the conversation, not on messages ------------
+
+    @Test
+    public void markedUnreadFallsBackToARecentWindow() {
+        final Conversation c = groupConversation();
+        final List<Message> messages = new ArrayList<>();
+        for (int i = 0; i < 40; i++) {
+            messages.add(received(c, "bruno", "message " + i));
+        }
+
+        final List<Message> unread = CatchUp.unread(messages, true);
+
+        assertEquals(CatchUp.MARKED_UNREAD_WINDOW, unread.size());
+        assertEquals("message 39", unread.get(unread.size() - 1).getBody());
+    }
+
+    @Test
+    public void markedUnreadOnAShortThreadTakesWhatThereIs() {
+        final Conversation c = groupConversation();
+        final List<Message> messages =
+                List.of(received(c, "bruno", "one"), received(c, "marc", "two"));
+
+        assertEquals(2, CatchUp.unread(messages, true).size());
+    }
+
+    /** A real boundary beats the flag: per-message unread is the precise answer. */
+    @Test
+    public void perMessageUnreadWinsOverTheMarker() {
+        final Conversation c = groupConversation();
+        final Message old1 = received(c, "bruno", "old");
+        final Message fresh = received(c, "marc", "fresh");
+        fresh.markUnread();
+
+        final List<Message> unread = CatchUp.unread(List.of(old1, fresh), true);
+
+        assertEquals(1, unread.size());
+        assertEquals("fresh", unread.get(0).getBody());
+    }
+
+    @Test
+    public void withoutTheMarkerAndWithoutUnreadThereIsNothing() {
+        final Conversation c = groupConversation();
+        final List<Message> messages =
+                List.of(received(c, "bruno", "one"), received(c, "marc", "two"));
+
+        assertTrue(CatchUp.unread(messages, false).isEmpty());
+    }
+
+    @Test
+    public void markerOnAnEmptyConversationStillYieldsNothing() {
+        assertTrue(CatchUp.unread(List.of(), true).isEmpty());
+    }
 }

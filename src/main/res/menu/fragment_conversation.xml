@@ -100,11 +100,6 @@
         android:title="@string/invite_contact"
         app:showAsAction="never" />
     <item
-        android:id="@+id/action_catch_up"
-        android:title="@string/ai_catch_up"
-        android:visible="false"
-        app:showAsAction="never" />
-    <item
         android:id="@+id/action_search"
         android:orderInCategory="48"
         android:title="@string/search_messages"

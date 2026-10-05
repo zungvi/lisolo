@@ -12,13 +12,90 @@
           the whole list snapping. clipToPadding is off so the bottom inset applied in code lets
           bubbles scroll under the navigation bar rather than stopping short of it.
         -->
+        <!--
+          Scam warning, carried at the top of the thread rather than in the bottom snackbar.
+          The warning is about the message the user is reading, so it belongs beside it and has
+          to stay put while they read; the snackbar sits under the composer and reads as
+          transient. Error-container colours mark it as a caution without the alarm of a dialog,
+          and it is dismissible because the judgement is a guess, not a verdict.
+        -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/scam_banner"
+            style="?attr/materialCardViewFilledStyle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentTop="true"
+            android:layout_marginHorizontal="12dp"
+            android:layout_marginTop="8dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="?attr/colorErrorContainer"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp"
+            tools:visibility="visible">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="4dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginEnd="12dp"
+                        android:layout_marginTop="2dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_report_24dp"
+                        app:tint="?attr/colorOnErrorContainer" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/ai_scam_warning"
+                        android:textAppearance="?textAppearanceBodyMedium"
+                        android:textColor="?attr/colorOnErrorContainer" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="end"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/scam_banner_dismiss"
+                        style="?attr/borderlessButtonStyle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/ai_scam_dismiss"
+                        android:textColor="?attr/colorOnErrorContainer" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/scam_banner_block"
+                        style="?attr/borderlessButtonStyle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/block"
+                        android:textColor="?attr/colorOnErrorContainer" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <eu.siacs.conversations.ui.widget.ContextMenuRecyclerView
             android:id="@+id/messages_view"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:layout_above="@+id/snackbar"
+            android:layout_below="@+id/scam_banner"
             android:layout_alignParentStart="true"
-            android:layout_alignParentTop="true"
             android:clipToPadding="false"
             android:fadeScrollbars="false"
             android:overScrollMode="ifContentScrolls"

@@ -250,13 +250,6 @@ public class ConversationFragment extends XmppFragment
     /** Forces a rebind when presentation preferences change without message data changing. */
     private int messageRenderGeneration = 0;
 
-    /**
-     * First message that was unread when this conversation was opened, or null if there was
-     * nothing new. Captured because opening the chat marks everything read moments later, so by
-     * the time the user reaches for "Catch up" the unread state is already gone.
-     */
-    private String catchUpFromUuid;
-
     /** How long a row stays recoloured after jumping to it from a reply. */
     private static final long MESSAGE_FLASH_DURATION_MS = 1200L;
     private String lastMessageUuid = null;
@@ -661,18 +654,6 @@ public class ConversationFragment extends XmppFragment
                         menuTogglePinned.setTitle(R.string.add_to_favorites);
                     }
                     menuMarkUnread.setVisible(c.isRead());
-                    // Only worth offering on a group with a real backlog; a 1:1 chat or a quiet
-                    // room is faster to read than to summarise.
-                    final int backlog;
-                    synchronized (ConversationFragment.this.messageList) {
-                        backlog = ConversationFragment.this.messageList.size();
-                    }
-                    menu.findItem(R.id.action_catch_up)
-                            .setVisible(
-                                    c.getMode() == Conversational.MODE_MULTI
-                                            && backlog >= CatchUp.MIN_MESSAGES
-                                            && ConversationFragment.this.catchUpFromUuid != null
-                                            && new AppSettings(requireContext()).isAiCatchUp());
                 }
 
                 @Override
@@ -695,9 +676,6 @@ public class ConversationFragment extends XmppFragment
                         case R.id.attach_record_voice:
                         case R.id.attach_location:
                             handleAttachmentSelection(menuItem);
-                            break;
-                        case R.id.action_catch_up:
-                            catchUpOnConversation();
                             break;
                         case R.id.action_search:
                             startSearch();
@@ -2964,10 +2942,6 @@ public class ConversationFragment extends XmppFragment
 
         maybeLoadInitialHistory();
 
-        // Must run before fireReadEvent, which is what clears the unread flags.
-        final Message firstUnread = conversation.getFirstUnreadMessage();
-        this.catchUpFromUuid = firstUnread == null ? null : firstUnread.getUuid();
-
         this.binding.messagesView.post(this::fireReadEvent);
         // TODO if we only do this when this fragment is running on main it won't *bing* in tablet
         // layout which might be unnecessary since we can *see* it
@@ -3663,7 +3637,11 @@ public class ConversationFragment extends XmppFragment
                 && connection.getManager(BlockingManager.class).hasFeature()
                 && conversation.countMessages() != 0
                 && !conversation.isBlocked()
-                && conversation.isWithStranger()) {
+                && conversation.isWithStranger()
+                // The scam banner says the same thing with more detail and already offers Block,
+                // so showing both stacks two warnings about one message.
+                && !conversation.getBooleanAttribute(
+                        Conversation.ATTRIBUTE_SCAM_LIKELY, false)) {
             showSnackbar(
                     R.string.received_message_from_stranger, R.string.block, mBlockClickListener);
         } else {
@@ -3697,6 +3675,7 @@ public class ConversationFragment extends XmppFragment
         synchronized (this.messageList) {
             if (this.conversation != null) {
                 conversation.populateWithMessages(this.messageList);
+                updateScamBanner(conversation);
                 updateSnackBar(conversation);
                 updateStatusMessages();
                 if (conversation.getReceivedMessagesCountSinceUuid(lastMessageUuid) != 0) {
@@ -4020,64 +3999,6 @@ public class ConversationFragment extends XmppFragment
                 });
     }
 
-    /** Summarises the backlog of the open group chat. */
-    private void catchUpOnConversation() {
-        final Conversation conversation = this.conversation;
-        if (conversation == null) {
-            return;
-        }
-        if (this.catchUpFromUuid == null) {
-            Toast.makeText(
-                            requireContext(),
-                            R.string.ai_catch_up_nothing_missed,
-                            Toast.LENGTH_SHORT)
-                    .show();
-            return;
-        }
-        final List<Message> messages = unreadSinceOpening();
-        if (messages.size() < CatchUp.MIN_MESSAGES) {
-            Toast.makeText(requireContext(), R.string.ai_catch_up_too_few, Toast.LENGTH_SHORT)
-                    .show();
-            return;
-        }
-        final AiResultSheet sheet = AiResultSheet.create(R.string.ai_catch_up_title);
-        sheet.show(getParentFragmentManager(), AiResultSheet.TAG);
-        CatchUp.summarise(
-                messages,
-                Locale.getDefault(),
-                outcome -> {
-                    if (!isAdded()) {
-                        return;
-                    }
-                    sheet.deliver(formatSummary(outcome), null);
-                });
-    }
-
-    /** Only what arrived while the user was away; the rest they have already read. */
-    private List<Message> unreadSinceOpening() {
-        synchronized (this.messageList) {
-            final int start = getIndexOf(this.catchUpFromUuid, this.messageList);
-            if (start < 0) {
-                return new ArrayList<>(this.messageList);
-            }
-            return new ArrayList<>(this.messageList.subList(start, this.messageList.size()));
-        }
-    }
-
-    private AiTask.Outcome formatSummary(final AiTask.Outcome outcome) {
-        if (!outcome.isSuccess()) {
-            return outcome;
-        }
-        final String formatted =
-                CatchUp.format(
-                        outcome.text,
-                        getString(R.string.ai_catch_up_done),
-                        getString(R.string.ai_catch_up_open));
-        return formatted.isEmpty()
-                ? AiTask.Outcome.failure(getString(R.string.ai_catch_up_nothing_missed))
-                : AiTask.Outcome.success(formatted);
-    }
-
     /**
      * Warns about a stranger's opening message when it looks like fraud.
      *
@@ -4100,32 +4021,71 @@ public class ConversationFragment extends XmppFragment
         if (body == null) {
             return;
         }
+        // Recorded before the answer arrives so the message is sent once, not on every open.
         conversation.setAttribute(Conversation.ATTRIBUTE_SCAM_CHECKED, true);
+        persist(conversation);
         ScamTriage.check(
                 body,
                 likelyScam -> {
-                    conversation.setAttribute(Conversation.ATTRIBUTE_SCAM_LIKELY, likelyScam);
-                    if (likelyScam && isAdded() && this.conversation == conversation) {
-                        showScamWarning();
+                    if (!likelyScam) {
+                        return;
+                    }
+                    conversation.setAttribute(Conversation.ATTRIBUTE_SCAM_LIKELY, true);
+                    persist(conversation);
+                    if (isAdded() && this.conversation == conversation) {
+                        updateScamBanner(conversation);
                     }
                 });
     }
 
+    /**
+     * Reads from the conversation rather than the fragment's list, which reInit has not filled
+     * yet at the point the check runs.
+     */
     private Message firstReceivedMessage(final Conversation conversation) {
-        synchronized (this.messageList) {
-            for (final Message message : this.messageList) {
-                if (message.getStatus() == Message.STATUS_RECEIVED
-                        && message.getType() == Message.TYPE_TEXT
-                        && !message.isDeleted()) {
-                    return message;
-                }
+        final List<Message> messages = new ArrayList<>();
+        conversation.populateWithMessages(messages);
+        for (final Message message : messages) {
+            if (message.getStatus() == Message.STATUS_RECEIVED
+                    && message.getType() == Message.TYPE_TEXT
+                    && !message.isDeleted()) {
+                return message;
             }
         }
         return null;
     }
 
-    private void showScamWarning() {
-        showSnackbar(R.string.ai_scam_warning, 0, null);
+    private void updateScamBanner(final Conversation conversation) {
+        if (this.binding == null) {
+            return;
+        }
+        final boolean show =
+                conversation != null
+                        && !conversation.isBlocked()
+                        && conversation.isWithStranger()
+                        && conversation.getBooleanAttribute(
+                                Conversation.ATTRIBUTE_SCAM_LIKELY, false);
+        this.binding.scamBanner.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (!show) {
+            return;
+        }
+        this.binding.scamBannerBlock.setOnClickListener(mBlockClickListener);
+        this.binding.scamBannerDismiss.setOnClickListener(
+                v -> {
+                    // The classifier is a guess, so dismissing has to stick rather than reappear
+                    // on the next refresh.
+                    conversation.setAttribute(Conversation.ATTRIBUTE_SCAM_LIKELY, false);
+                    persist(conversation);
+                    updateScamBanner(conversation);
+                });
+    }
+
+    /** setAttribute only touches memory; without this the verdict dies with the process. */
+    private void persist(final Conversation conversation) {
+        final var activity = requireXmppActivity();
+        if (activity.xmppConnectionService != null) {
+            activity.xmppConnectionService.updateConversation(conversation);
+        }
     }
 
     protected void showSnackbar(
