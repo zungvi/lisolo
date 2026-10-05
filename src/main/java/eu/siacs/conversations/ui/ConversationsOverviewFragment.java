@@ -36,6 +36,8 @@ import android.content.Intent;
 import android.graphics.Canvas;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.MotionEvent;
+import android.view.GestureDetector;
 import java.util.Locale;
 import eu.siacs.conversations.entities.Message;
 import eu.siacs.conversations.ai.CatchUp;
@@ -270,6 +272,47 @@ public class ConversationsOverviewFragment extends XmppFragment {
 
     private ItemTouchHelper touchHelper;
 
+    private GestureDetector longPressGestureDetector;
+
+    private final RecyclerView.OnItemTouchListener longPressDetector =
+            new RecyclerView.SimpleOnItemTouchListener() {
+                @Override
+                public boolean onInterceptTouchEvent(
+                        @NonNull final RecyclerView recyclerView, @NonNull final MotionEvent event) {
+                    detector(recyclerView).onTouchEvent(event);
+                    // Never consume: the row still has to receive taps and swipes as before.
+                    return false;
+                }
+
+                private GestureDetector detector(final RecyclerView recyclerView) {
+                    if (longPressGestureDetector == null) {
+                        longPressGestureDetector =
+                                new GestureDetector(
+                                        recyclerView.getContext(),
+                                        new GestureDetector.SimpleOnGestureListener() {
+                                            @Override
+                                            public void onLongPress(@NonNull final MotionEvent e) {
+                                                final View child =
+                                                        recyclerView.findChildViewUnder(
+                                                                e.getX(), e.getY());
+                                                if (child == null) {
+                                                    return;
+                                                }
+                                                final int position =
+                                                        recyclerView.getChildAdapterPosition(child);
+                                                if (position < 0
+                                                        || position >= conversations.size()) {
+                                                    return;
+                                                }
+                                                onConversationLongClick(
+                                                        child, conversations.get(position));
+                                            }
+                                        });
+                    }
+                    return longPressGestureDetector;
+                }
+            };
+
     public static Conversation getSuggestion(final FragmentActivity activity) {
         final Conversation exception;
         Fragment fragment =
@@ -353,11 +396,16 @@ public class ConversationsOverviewFragment extends XmppFragment {
                                 "Activity does not implement OnConversationSelected");
                     }
                 });
-        this.conversationsAdapter.setConversationLongClickListener(this::onConversationLongClick);
         this.binding.list.setAdapter(this.conversationsAdapter);
         this.binding.list.setLayoutManager(
                 new LinearLayoutManager(getActivity(), LinearLayoutManager.VERTICAL, false));
         this.binding.list.addOnScrollListener(ExtendedFabSizeChanger.of(binding.fab));
+        // Registered before ItemTouchHelper so this sees touches first. Relying on the row's own
+        // OnLongClickListener was unreliable: swipe-to-archive shares this RecyclerView, and as
+        // soon as a finger drifts a few pixels ItemTouchHelper starts tracking a swipe and the
+        // child's long-press timer is cancelled. A perfectly still synthetic press hid that,
+        // while a real finger almost always moves.
+        this.binding.list.addOnItemTouchListener(this.longPressDetector);
         this.touchHelper = new ItemTouchHelper(this.callback);
         this.touchHelper.attachToRecyclerView(this.binding.list);
         // The list draws behind the navigation bar; padding keeps the final row reachable and the
@@ -533,19 +581,41 @@ public class ConversationsOverviewFragment extends XmppFragment {
      * @return false when there is nothing to offer, so the long press does nothing at all
      *     rather than opening an empty menu.
      */
+    /**
+     * Long press on a row.
+     *
+     * <p>Two actions with different dependencies: marking unread is plain app behaviour and is
+     * always offered, while catching up needs the AI features switched on. Keeping a non-AI
+     * action here means the gesture does something on every conversation, instead of silently
+     * doing nothing whenever AI happens to be off - which is indistinguishable from the long
+     * press being broken.
+     */
     private boolean onConversationLongClick(final View view, final Conversation conversation) {
-        final List<Message> unread = unreadOf(conversation);
-        if (conversation.getMode() != Conversational.MODE_MULTI
-                || unread.size() < CatchUp.MIN_MESSAGES
-                || !new AppSettings(requireContext()).isAiCatchUp()) {
-            return false;
-        }
+        // Always one or the other, so the gesture is never a no-op.
+        final boolean isRead = conversation.isRead();
+        final boolean canCatchUp =
+                conversation.getMode() == Conversational.MODE_MULTI
+                        && new AppSettings(requireContext()).isAiCatchUp();
         final PopupMenu popup = new PopupMenu(requireContext(), view);
         popup.inflate(R.menu.conversation_list_context);
+        popup.getMenu().findItem(R.id.action_mark_unread).setVisible(isRead);
+        popup.getMenu().findItem(R.id.action_mark_read).setVisible(!isRead);
+        popup.getMenu().findItem(R.id.action_catch_up).setVisible(canCatchUp);
         popup.setOnMenuItemClickListener(
                 item -> {
-                    if (item.getItemId() == R.id.action_catch_up) {
-                        catchUp(conversation, unread);
+                    final int id = item.getItemId();
+                    if (id == R.id.action_mark_unread) {
+                        requireXmppActivity()
+                                .xmppConnectionService
+                                .markConversationUnread(conversation);
+                        return true;
+                    }
+                    if (id == R.id.action_mark_read) {
+                        markRead(conversation);
+                        return true;
+                    }
+                    if (id == R.id.action_catch_up) {
+                        catchUp(conversation);
                         return true;
                     }
                     return false;
@@ -554,13 +624,41 @@ public class ConversationsOverviewFragment extends XmppFragment {
         return true;
     }
 
+    /**
+     * A chat can be unread because messages arrived or because the user flagged it, and often
+     * both. The menu offers one "Mark as read", so it has to clear both; clearing only one
+     * leaves the row still looking unread, which reads as the action having failed.
+     */
+    private void markRead(final Conversation conversation) {
+        final var service = requireXmppActivity().xmppConnectionService;
+        if (service == null) {
+            return;
+        }
+        service.clearConversationUnreadMarker(conversation);
+        service.markRead(conversation);
+    }
+
     private List<Message> unreadOf(final Conversation conversation) {
         final List<Message> messages = new ArrayList<>();
         conversation.populateWithMessages(messages);
         return CatchUp.unread(messages, conversation.isMarkedUnread());
     }
 
-    private void catchUp(final Conversation conversation, final List<Message> unread) {
+    private void catchUp(final Conversation conversation) {
+        final List<Message> unread = unreadOf(conversation);
+        if (unread.isEmpty()) {
+            Toast.makeText(
+                            requireContext(),
+                            R.string.ai_catch_up_nothing_missed,
+                            Toast.LENGTH_SHORT)
+                    .show();
+            return;
+        }
+        if (unread.size() < CatchUp.MIN_MESSAGES) {
+            Toast.makeText(requireContext(), R.string.ai_catch_up_too_few, Toast.LENGTH_SHORT)
+                    .show();
+            return;
+        }
         final AiResultSheet sheet = AiResultSheet.create(R.string.ai_catch_up_title);
         sheet.show(getParentFragmentManager(), AiResultSheet.TAG);
         CatchUp.summarise(
