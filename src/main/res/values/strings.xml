@@ -1063,6 +1063,9 @@
     <string name="ai_catch_up">Catch up</string>
     <string name="ai_catch_up_title">What you missed</string>
     <string name="ai_catch_up_too_few">There is not much to catch up on here.</string>
+    <string name="ai_catch_up_nothing_missed">Nothing was missed — you are up to date.</string>
+    <string name="ai_catch_up_done">Settled</string>
+    <string name="ai_catch_up_open">Still open</string>
     <string name="ai_generic_error">Zungvi AI could not answer. Please try again.</string>
     <string name="ai_scam_warning">This looks like it could be a scam. Do not share codes, PINs or payment details.</string>
     <string name="pref_title_ai">AI features</string>

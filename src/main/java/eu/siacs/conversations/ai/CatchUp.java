@@ -22,6 +22,75 @@ public final class CatchUp {
 
     private CatchUp() {}
 
+    /**
+     * Turns the model's marker format into something a person would read.
+     *
+     * <p>The prompt asks for literal DONE and OPEN markers because making the model sort each
+     * topic into settled or outstanding is what stopped it reporting solved problems as still
+     * open. That structure is worth keeping and worth hiding: shown raw it reads like machine
+     * output. Headings arrive translated from the caller.
+     *
+     * <p>Anything that does not follow the format is passed through untouched rather than
+     * mangled, since a summary in an unexpected shape is still more use than a parse error.
+     */
+    public static String format(final String raw, final String doneHeading, final String openHeading) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        final StringBuilder done = new StringBuilder();
+        final StringBuilder open = new StringBuilder();
+        StringBuilder current = null;
+        boolean sawMarker = false;
+        for (final String line : raw.split("\n")) {
+            final String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            final String marker = trimmed.replace("*", "").replace("#", "").replace(":", "").trim();
+            if ("DONE".equalsIgnoreCase(marker)) {
+                current = done;
+                sawMarker = true;
+                continue;
+            }
+            if ("OPEN".equalsIgnoreCase(marker)) {
+                current = open;
+                sawMarker = true;
+                continue;
+            }
+            if (current == null) {
+                continue;
+            }
+            final String item = stripBullet(trimmed);
+            // The model writes "None" for an empty section; an absent heading says it better.
+            if (item.isEmpty() || "none".equalsIgnoreCase(item)) {
+                continue;
+            }
+            current.append("•  ").append(item).append('\n');
+        }
+        if (!sawMarker) {
+            return raw.trim();
+        }
+        final StringBuilder out = new StringBuilder();
+        if (done.length() > 0) {
+            out.append(doneHeading).append('\n').append(done);
+        }
+        if (open.length() > 0) {
+            if (out.length() > 0) {
+                out.append('\n');
+            }
+            out.append(openHeading).append('\n').append(open);
+        }
+        return out.toString().trim();
+    }
+
+    private static String stripBullet(final String line) {
+        String item = line;
+        while (!item.isEmpty() && (item.startsWith("-") || item.startsWith("*") || item.startsWith("•"))) {
+            item = item.substring(1).trim();
+        }
+        return item.trim();
+    }
+
     public static void summarise(
             @NonNull final List<Message> messages,
             @NonNull final Locale target,

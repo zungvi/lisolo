@@ -250,6 +250,13 @@ public class ConversationFragment extends XmppFragment
     /** Forces a rebind when presentation preferences change without message data changing. */
     private int messageRenderGeneration = 0;
 
+    /**
+     * First message that was unread when this conversation was opened, or null if there was
+     * nothing new. Captured because opening the chat marks everything read moments later, so by
+     * the time the user reaches for "Catch up" the unread state is already gone.
+     */
+    private String catchUpFromUuid;
+
     /** How long a row stays recoloured after jumping to it from a reply. */
     private static final long MESSAGE_FLASH_DURATION_MS = 1200L;
     private String lastMessageUuid = null;
@@ -664,6 +671,7 @@ public class ConversationFragment extends XmppFragment
                             .setVisible(
                                     c.getMode() == Conversational.MODE_MULTI
                                             && backlog >= CatchUp.MIN_MESSAGES
+                                            && ConversationFragment.this.catchUpFromUuid != null
                                             && new AppSettings(requireContext()).isAiCatchUp());
                 }
 
@@ -2956,6 +2964,10 @@ public class ConversationFragment extends XmppFragment
 
         maybeLoadInitialHistory();
 
+        // Must run before fireReadEvent, which is what clears the unread flags.
+        final Message firstUnread = conversation.getFirstUnreadMessage();
+        this.catchUpFromUuid = firstUnread == null ? null : firstUnread.getUuid();
+
         this.binding.messagesView.post(this::fireReadEvent);
         // TODO if we only do this when this fragment is running on main it won't *bing* in tablet
         // layout which might be unnecessary since we can *see* it
@@ -4014,10 +4026,15 @@ public class ConversationFragment extends XmppFragment
         if (conversation == null) {
             return;
         }
-        final List<Message> messages;
-        synchronized (this.messageList) {
-            messages = new ArrayList<>(this.messageList);
+        if (this.catchUpFromUuid == null) {
+            Toast.makeText(
+                            requireContext(),
+                            R.string.ai_catch_up_nothing_missed,
+                            Toast.LENGTH_SHORT)
+                    .show();
+            return;
         }
+        final List<Message> messages = unreadSinceOpening();
         if (messages.size() < CatchUp.MIN_MESSAGES) {
             Toast.makeText(requireContext(), R.string.ai_catch_up_too_few, Toast.LENGTH_SHORT)
                     .show();
@@ -4029,10 +4046,36 @@ public class ConversationFragment extends XmppFragment
                 messages,
                 Locale.getDefault(),
                 outcome -> {
-                    if (isAdded()) {
-                        sheet.deliver(outcome, null);
+                    if (!isAdded()) {
+                        return;
                     }
+                    sheet.deliver(formatSummary(outcome), null);
                 });
+    }
+
+    /** Only what arrived while the user was away; the rest they have already read. */
+    private List<Message> unreadSinceOpening() {
+        synchronized (this.messageList) {
+            final int start = getIndexOf(this.catchUpFromUuid, this.messageList);
+            if (start < 0) {
+                return new ArrayList<>(this.messageList);
+            }
+            return new ArrayList<>(this.messageList.subList(start, this.messageList.size()));
+        }
+    }
+
+    private AiTask.Outcome formatSummary(final AiTask.Outcome outcome) {
+        if (!outcome.isSuccess()) {
+            return outcome;
+        }
+        final String formatted =
+                CatchUp.format(
+                        outcome.text,
+                        getString(R.string.ai_catch_up_done),
+                        getString(R.string.ai_catch_up_open));
+        return formatted.isEmpty()
+                ? AiTask.Outcome.failure(getString(R.string.ai_catch_up_nothing_missed))
+                : AiTask.Outcome.success(formatted);
     }
 
     /**

@@ -39,11 +39,11 @@ public final class AiTask {
             return new Outcome(result.text, result.errorMessage);
         }
 
-        static Outcome success(final String text) {
+        public static Outcome success(final String text) {
             return new Outcome(text, null);
         }
 
-        static Outcome failure(final String message) {
+        public static Outcome failure(final String message) {
             return new Outcome(null, message);
         }
     }

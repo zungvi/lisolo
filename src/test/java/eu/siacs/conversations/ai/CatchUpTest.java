@@ -114,4 +114,68 @@ public class CatchUpTest {
     private static Message sent(final Conversation conversation, final String body) {
         return new Message(conversation, body, Message.ENCRYPTION_NONE, Message.STATUS_SEND);
     }
+
+    // --- formatting the model's marker output into something readable -------------------------
+
+    private static final String DONE = "Settled";
+    private static final String OPEN = "Still open";
+
+    @Test
+    public void markersBecomeHeadingsAndBullets() {
+        final String raw = "DONE\n- Serveur: logrotate configure\nOPEN\n- Backup automatique";
+
+        assertEquals(
+                "Settled\n\u2022  Serveur: logrotate configure\n\nStill open\n\u2022  Backup automatique",
+                CatchUp.format(raw, DONE, OPEN));
+    }
+
+    /** The raw markers are what made it read like machine output. */
+    @Test
+    public void rawMarkersNeverSurvive() {
+        final String formatted =
+                CatchUp.format("DONE\n- a\nOPEN\n- b", DONE, OPEN);
+
+        assertFalse(formatted.contains("DONE"));
+        assertFalse(formatted.contains("OPEN"));
+    }
+
+    @Test
+    public void emptySectionsAreDroppedRatherThanLeftAsNone() {
+        final String formatted = CatchUp.format("DONE\n- fixed it\nOPEN\nNone", DONE, OPEN);
+
+        assertEquals("Settled\n\u2022  fixed it", formatted);
+        assertFalse(formatted.contains("None"));
+    }
+
+    @Test
+    public void aSummaryWithNothingInEitherSectionIsEmpty() {
+        assertEquals("", CatchUp.format("DONE\nNone\nOPEN\nNone", DONE, OPEN));
+    }
+
+    @Test
+    public void markdownDecorationOnHeadingsIsTolerated() {
+        final String formatted = CatchUp.format("**DONE**\n* a\n## OPEN:\n* b", DONE, OPEN);
+
+        assertEquals("Settled\n\u2022  a\n\nStill open\n\u2022  b", formatted);
+    }
+
+    /** An answer that ignores the format is still worth showing. */
+    @Test
+    public void outputWithoutMarkersIsPassedThrough() {
+        assertEquals("Just a paragraph.", CatchUp.format("Just a paragraph.", DONE, OPEN));
+    }
+
+    @Test
+    public void blankInputProducesNothing() {
+        assertEquals("", CatchUp.format("", DONE, OPEN));
+        assertEquals("", CatchUp.format(null, DONE, OPEN));
+        assertEquals("", CatchUp.format("   \n  ", DONE, OPEN));
+    }
+
+    @Test
+    public void headingsAreTakenFromTheCallerSoTheyCanBeTranslated() {
+        final String formatted = CatchUp.format("DONE\n- a", "Réglé", "Encore ouvert");
+
+        assertTrue(formatted.startsWith("Réglé"));
+    }
 }
