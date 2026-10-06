@@ -14,14 +14,15 @@
     <string name="easy_invite_share_text">Join %1$s and chat with me: %2$s</string>
     <string name="share_invite_with">Share invite with…</string>
 
-    <!-- Sign-in screen -->
+    <!-- Welcome screen -->
+    <string name="xmpp_intro">Lisolo is an XMPP client. Sign in with an account from any XMPP provider, or create a new one.</string>
+    <string name="sign_in_with_zungvi">Sign in with a Zungvi account</string>
+
+    <!-- Zungvi sign-in screen -->
+    <string name="title_activity_zungvi_sign_in">Sign in with Zungvi</string>
+    <string name="zungvi_sign_in_instructions">Sign in with your Zungvi account and we will set up the matching chat account for you.</string>
     <string name="zungvi_email_hint">Email or username</string>
     <string name="continue_with_zungvi">Continue with Zungvi</string>
-    <string name="continue_with_google">Continue with Google</string>
-    <string name="use_another_xmpp_account">Use another XMPP account</string>
-    <string name="or">or</string>
     <string name="enter_email_and_password">Enter your email and password</string>
     <string name="signing_in">Signing in…</string>
-    <string name="google_sign_in_failed">Google sign-in could not be completed.</string>
-    <string name="google_sign_in_cancelled">Google sign-in was cancelled.</string>
 </resources>

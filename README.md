@@ -1,21 +1,13 @@
-# Zungvi Messenger Android client
+# Lisolo Android client
 
-This is the source code for the Zungvi Messenger Android client.
+This is the source code for the Lisolo Android client.
 
-Zungvi Messenger for Android is based on [Snikket](https://snikket.org/) and [Conversations](https://conversations.im/) by Daniel Gultsch.
+Lisolo for Android is based on [Snikket](https://snikket.org/) and [Conversations](https://conversations.im/) by Daniel Gultsch.
 
 ## Building
 
 See [docs/BUILDING.md](docs/BUILDING.md) for prerequisites, the build variants, and how to
 produce a debug or release APK.
-
-Quick start — a debug APK for an arm64 phone such as a Galaxy S23:
-
-```bash
-export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
-./gradlew assembleConversationsFreeDebug
-adb install -r -t build/outputs/apk/conversationsFree/debug/Lisolo-*-conversations-free-arm64-v8a-debug.apk
-```
 
 The official Conversations repository is available at: https://codeberg.org/iNPUTmice/Conversations
 

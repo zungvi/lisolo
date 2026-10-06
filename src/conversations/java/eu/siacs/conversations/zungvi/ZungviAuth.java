@@ -8,7 +8,6 @@ import eu.siacs.conversations.xmpp.Jid;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 import okhttp3.FormBody;
-import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -18,24 +17,17 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * Talks to the Zungvi accounts API to turn a Zungvi or Google login into XMPP credentials.
+ * Talks to the Zungvi accounts API to turn a Zungvi login into XMPP credentials.
  *
  * <p>Zungvi is the source of truth for identity: Prosody authenticates through mod_auth_zungvi,
  * so the JID and the credential both have to come from here rather than being invented locally.
  *
- * <p>The two endpoints answer in different shapes, which this class flattens into {@link Result}:
- *
- * <ul>
- *   <li>{@code /auth-login} puts the identity at the top level and returns no password, because a
- *       password login authenticates against the Zungvi account password - the same secret the
- *       user just typed, which is what gets handed back for XMPP.
- *   <li>{@code /auth-google} nests it under {@code user} and does return a password, because a
- *       Google account has no usable account password; the API mints one for XMPP specifically.
- * </ul>
+ * <p>{@code /auth-login} puts the identity at the top level and returns no password, because a
+ * password login authenticates against the Zungvi account password - the same secret the user
+ * just typed, which is what gets handed back for XMPP. {@link Result} carries that pair, or the
+ * reason there is none.
  */
 public final class ZungviAuth {
-
-    private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
     private static final OkHttpClient CLIENT =
             new OkHttpClient.Builder()
@@ -99,7 +91,7 @@ public final class ZungviAuth {
         if (json.optBoolean("requires_2fa", false)) {
             return Result.twoFactorRequired(
                     "This account uses two-factor authentication, which this app cannot complete"
-                            + " yet. Sign in with Google, or use another XMPP account.");
+                            + " yet. Use another XMPP account.");
         }
         if (!json.optBoolean("resp", false)) {
             return Result.failure(messageOr(json, "Wrong email or password."));
@@ -108,43 +100,6 @@ public final class ZungviAuth {
         final Jid jid = parseJid(json.optJSONObject("xmpp"));
         if (jid == null) {
             return Result.failure("This Zungvi account has no chat address yet.");
-        }
-        return Result.success(jid, password);
-    }
-
-    /** Exchanges a Google ID token for XMPP credentials via Zungvi. */
-    public static Result loginWithGoogle(final String idToken) {
-        final JSONObject payload = new JSONObject();
-        try {
-            payload.put("credential", idToken);
-        } catch (final JSONException e) {
-            return Result.failure("Could not prepare the Google sign-in request.");
-        }
-        final Request request =
-                new Request.Builder()
-                        .url(baseUrl() + "/auth-google")
-                        .post(RequestBody.create(payload.toString(), JSON))
-                        .build();
-        final JSONObject json = execute(request);
-        if (json == null) {
-            return Result.failure("Could not reach Zungvi. Check your connection and try again.");
-        }
-        if (!json.optBoolean("resp", false)) {
-            return Result.failure(messageOr(json, "Google sign-in was refused."));
-        }
-        // /auth-google nests the identity under "user".
-        final JSONObject user = json.optJSONObject("user");
-        final JSONObject xmpp = user == null ? null : user.optJSONObject("xmpp");
-        final Jid jid = parseJid(xmpp);
-        if (jid == null) {
-            return Result.failure("This Zungvi account has no chat address yet.");
-        }
-        final String password = xmpp.optString("password", null);
-        if (Strings.isNullOrEmpty(password)) {
-            // The server provisioned a JID but no credential, so there is nothing to log in
-            // with. Saying so plainly beats creating an account that can never connect.
-            return Result.failure(
-                    "Zungvi did not return chat credentials for this account. Please try again.");
         }
         return Result.success(jid, password);
     }
