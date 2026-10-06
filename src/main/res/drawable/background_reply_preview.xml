@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The quote card sits inside a bubble whose own corners are rounded, so a flat rectangle reads
+     as a seam across the bubble. Radius matches ShapeAppearance.RoundedCornersInsideBubble. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="?colorSurfaceContainer" />
+    <corners android:radius="12dp" />
+</shape>

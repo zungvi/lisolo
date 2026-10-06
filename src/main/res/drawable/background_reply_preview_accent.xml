@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tinted at bind time with the quoted sender's colour, so the card identifies who is quoted
+     before the name is read. White solid so the tint is applied unmodified. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@android:color/white" />
+    <corners android:radius="2dp" />
+</shape>

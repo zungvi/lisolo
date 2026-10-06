@@ -119,6 +119,7 @@ public class Message extends AbstractEntity
     private Set<ReadByMarker> readByMarkers = new CopyOnWriteArraySet<>();
     private String occupantId;
     private Collection<Reaction> reactions = Collections.emptyList();
+    private transient Reaction.Aggregated aggregatedReactions;
     private String replyTo;
     private String replyId;
     private String replyPreview;
@@ -780,12 +781,25 @@ public class Message extends AbstractEntity
         this.replyPreview = preview;
     }
 
+    /**
+     * Aggregating indexes and sorts the whole reaction collection, which is wasted work when it
+     * happens once per bind: every row rebuilds the same result on every scroll frame. Computed
+     * lazily and dropped in {@link #setReactions(Collection)}, the only place the backing
+     * collection changes after construction.
+     */
     public Reaction.Aggregated getAggregatedReactions() {
-        return Reaction.aggregated(this.reactions);
+        final var cached = this.aggregatedReactions;
+        if (cached != null) {
+            return cached;
+        }
+        final var aggregated = Reaction.aggregated(this.reactions);
+        this.aggregatedReactions = aggregated;
+        return aggregated;
     }
 
     public void setReactions(final Collection<Reaction> reactions) {
         this.reactions = reactions;
+        this.aggregatedReactions = null;
     }
 
     public boolean hasMeCommand() {

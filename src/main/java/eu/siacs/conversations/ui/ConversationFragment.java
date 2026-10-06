@@ -261,6 +261,34 @@ public class ConversationFragment extends XmppFragment
     private float messageSwipeStartY = 0f;
     private int messageSwipeStartPosition = RecyclerView.NO_POSITION;
     private boolean messageSwipeHandled = false;
+
+    /**
+     * Swipe-to-reply and the pull-for-older-messages gesture.
+     *
+     * <p>An item touch listener rather than the RecyclerView's own OnTouchListener: a bubble is
+     * clickable and long-clickable, so it consumes ACTION_DOWN and the view's touch listener was
+     * never called again for a gesture that started on one. That left the narrow strip beside the
+     * bubble as the only place a swipe could begin - exactly the part of the row that is hardest
+     * to hit, and absent altogether on a wide bubble. RecyclerView consults item touch listeners
+     * from onInterceptTouchEvent, which runs before the event is offered to any child.
+     */
+    private final RecyclerView.OnItemTouchListener messageGestureListener =
+            new RecyclerView.OnItemTouchListener() {
+                @Override
+                public boolean onInterceptTouchEvent(
+                        @NonNull final RecyclerView view, @NonNull final MotionEvent event) {
+                    return onMessagesTouch(view, event);
+                }
+
+                @Override
+                public void onTouchEvent(
+                        @NonNull final RecyclerView view, @NonNull final MotionEvent event) {
+                    onMessagesTouch(view, event);
+                }
+
+                @Override
+                public void onRequestDisallowInterceptTouchEvent(final boolean disallow) {}
+            };
     private Message replyToMessage = null;
     private final OnClickListener clickToMuc =
             new OnClickListener() {
@@ -1410,7 +1438,7 @@ public class ConversationFragment extends XmppFragment
         binding.messagesView.addOnLayoutChangeListener(
                 (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
                         toggleScrollDownButton());
-        binding.messagesView.setOnTouchListener(this::onMessagesTouch);
+        binding.messagesView.addOnItemTouchListener(this.messageGestureListener);
         binding.mediaPreview.setAdapter(mediaPreviewAdapter);
         messageListAdapter = new MessageAdapter((XmppActivity) getActivity(), this.messageList);
         messageListAdapter.setOnContactPictureClicked(this);
@@ -1541,8 +1569,12 @@ public class ConversationFragment extends XmppFragment
                 if (messageSwipeStartPosition != RecyclerView.NO_POSITION
                         && Math.abs(deltaX) > touchSlop * 4
                         && Math.abs(deltaX) > Math.abs(deltaY) * 2) {
-                    maybeReplyToSwipedMessage(messageSwipeStartPosition);
                     messageSwipeHandled = true;
+                    // Claiming the gesture is what cancels the bubble's pending click and long
+                    // press; without it the same finger movement would also open a message.
+                    // Only claimed when the swipe actually started a reply, so a swipe across a
+                    // date separator still scrolls.
+                    return maybeReplyToSwipedMessage(messageSwipeStartPosition);
                 }
             }
             case MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -1554,21 +1586,24 @@ public class ConversationFragment extends XmppFragment
         return false;
     }
 
-    private void maybeReplyToSwipedMessage(final int position) {
+    /** Whether the swipe landed on something repliable and the composer now quotes it. */
+    private boolean maybeReplyToSwipedMessage(final int position) {
         synchronized (this.messageList) {
             if (position < 0 || position >= this.messageList.size()) {
-                return;
+                return false;
             }
             final Message message = this.messageList.get(position);
             if (message.getType() == Message.TYPE_STATUS
                     || message.getType() == Message.TYPE_RTP_SESSION
                     || message.isDeleted()
                     || Strings.isNullOrEmpty(message.getReplyIdWireFormat())) {
-                return;
+                return false;
             }
-            if (!getReplyPreview(message).isEmpty()) {
-                setReplyToMessage(message);
+            if (getReplyPreview(message).isEmpty()) {
+                return false;
             }
+            setReplyToMessage(message);
+            return true;
         }
     }
 

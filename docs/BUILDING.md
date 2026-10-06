@@ -1,6 +1,6 @@
 # Building Lisolo
 
-How to produce an APK of the Zungvi Messenger (Lisolo) Android client, install it on a phone, and
+How to produce an APK of the Lisolo Android client, install it on a phone, and
 run the tests.
 
 ## Prerequisites

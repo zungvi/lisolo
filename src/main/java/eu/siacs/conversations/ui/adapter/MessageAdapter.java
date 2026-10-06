@@ -80,6 +80,9 @@ import eu.siacs.conversations.ui.util.Attachment;
 import eu.siacs.conversations.ui.util.AvatarWorkerTask;
 import eu.siacs.conversations.ui.util.Typefaces;
 import eu.siacs.conversations.ui.util.QuoteHelper;
+import eu.siacs.conversations.ui.util.QuotedMessages;
+import eu.siacs.conversations.ui.util.ReactionChips;
+import eu.siacs.conversations.ui.util.ReactionDetails;
 import eu.siacs.conversations.ui.util.ViewUtil;
 import eu.siacs.conversations.ui.widget.ClickableMovementMethod;
 import eu.siacs.conversations.utils.CryptoHelper;
@@ -117,6 +120,9 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
     private final DisplayMetrics metrics;
     private OnContactPictureClicked mOnContactPictureClickedListener;
     private OnReplyPreviewClicked mOnReplyPreviewClickedListener;
+
+    /** Reply target lookup for the current snapshot; see {@link #quotedMessages()}. */
+    private QuotedMessages quotedMessages;
 
     /**
      * The message currently flashed after jumping to it from a reply, or null. Held as a uuid
@@ -160,6 +166,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
     /** Replaces the adapter snapshot immediately before its matching notifications are dispatched. */
     public void replaceMessages(final List<Message> messages) {
         this.messages = new ArrayList<>(messages);
+        this.quotedMessages = null;
     }
 
     public MessageAdapter(final XmppActivity activity, final List<Message> messages) {
@@ -1075,13 +1082,15 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
                         message.getAggregatedReactions(),
                         reactions -> sendReactions(message, reactions),
                         emoji -> showDetailedReaction(message, emoji),
+                        () -> showAllReactions(message),
                         () -> addReaction(message));
             } else {
                 BindingAdapters.setReactionsOnSent(
                         viewHolder.reactions(),
                         message.getAggregatedReactions(),
                         reactions -> sendReactions(message, reactions),
-                        emoji -> showDetailedReaction(message, emoji));
+                        emoji -> showDetailedReaction(message, emoji),
+                        () -> showAllReactions(message));
             }
         } else {
             if (viewHolder instanceof StartBubbleMessageItemViewHolder startViewHolder) {
@@ -1091,7 +1100,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
                     viewHolder.reactions(),
                     message.getAggregatedReactions(),
                     reactions -> sendReactions(message, reactions),
-                    emoji -> showDetailedReaction(message, emoji));
+                    emoji -> showDetailedReaction(message, emoji),
+                    () -> showAllReactions(message));
         }
 
         displayStatus(viewHolder, message, bubbleColor);
@@ -1347,6 +1357,17 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
                 || !Objects.equal(a.getFingerprint(), b.getFingerprint())) {
             return false;
         }
+        // A private message has a different audience than the public room, so it never shares a
+        // bubble group with one; two private messages only do when they are with the same person.
+        // The occupant check below cannot stand in for this: it only runs on received messages, so
+        // without this two private messages *we* sent to different participants would merge into
+        // one group and read as a single thread.
+        if (a.isPrivateMessage() != b.isPrivateMessage()) {
+            return false;
+        }
+        if (a.isPrivateMessage() && !Objects.equal(a.getCounterpart(), b.getCounterpart())) {
+            return false;
+        }
         if (a.getConversation().getMode() == Conversation.MODE_MULTI
                 && a.getStatus() == Message.STATUS_RECEIVED) {
             final var occupantIdA = a.getOccupantId();
@@ -1380,25 +1401,70 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
     }
 
     private boolean showDetailedReaction(final Message message, final String emoji) {
-        final var c = message.getConversation();
-        if (c instanceof Conversation conversation && c.getMode() == Conversational.MODE_MULTI) {
-            final var reactions =
-                    Collections2.filter(
-                            message.getReactions(), r -> r.normalizedReaction().equals(emoji));
-            final var mucOptions = conversation.getMucOptions();
-            final var users = mucOptions.getUsersOrStubs(reactions);
-            if (users.isEmpty()) {
-                return true;
-            }
-            final MaterialAlertDialogBuilder dialogBuilder =
-                    new MaterialAlertDialogBuilder(activity);
-            dialogBuilder.setTitle(emoji);
-            dialogBuilder.setMessage(UIHelper.concatNames(users));
-            dialogBuilder.create().show();
-            return true;
-        } else {
+        final var names = reactorNames(message, emoji);
+        if (names == null) {
+            // Nobody to name. Leave the long press unhandled so it still reaches the message
+            // context menu, as it did before this had anything to show.
             return false;
         }
+        new MaterialAlertDialogBuilder(activity)
+                .setTitle(emoji)
+                .setMessage(names)
+                .create()
+                .show();
+        return true;
+    }
+
+    /** Everyone who reacted with {@code emoji}, joined for display, or null when nobody did. */
+    private String reactorNames(final Message message, final String emoji) {
+        final var reactions =
+                Collections2.filter(
+                        message.getReactions(), r -> r.normalizedReaction().equals(emoji));
+        final var c = message.getConversation();
+        if (c.getMode() == Conversational.MODE_MULTI) {
+            if (c instanceof Conversation conversation) {
+                final var users = conversation.getMucOptions().getUsersOrStubs(reactions);
+                return users.isEmpty() ? null : UIHelper.concatNames(users);
+            }
+            // A detached channel row carries no occupant list to resolve reactors against.
+            return null;
+        }
+        // A direct conversation has only two possible reactors, so there is nothing to look up.
+        // Before, the long press simply did nothing here and the chip looked inert.
+        return ReactionDetails.format(
+                ReactionDetails.directNames(
+                        reactions,
+                        activity.getString(R.string.me),
+                        c.getContact() == null ? null : c.getContact().getDisplayName()));
+    }
+
+    /**
+     * The full reaction list, for the "+n" chip that stands in for the reactions {@link
+     * ReactionChips} held back.
+     */
+    private void showAllReactions(final Message message) {
+        final var aggregated = message.getAggregatedReactions();
+        final var lines = new StringBuilder();
+        for (final var reaction : aggregated.reactions) {
+            final var names = reactorNames(message, reaction.getKey());
+            if (lines.length() > 0) {
+                lines.append('\n');
+            }
+            lines.append(
+                    String.format(
+                            Locale.getDefault(),
+                            "%s  %d",
+                            reaction.getKey(),
+                            reaction.getValue()));
+            if (names != null) {
+                lines.append("  ").append(names);
+            }
+        }
+        new MaterialAlertDialogBuilder(activity)
+                .setTitle(R.string.reactions)
+                .setMessage(lines)
+                .create()
+                .show();
     }
 
     private void sendReactions(final Message message, final Collection<String> reactions) {
@@ -1408,13 +1474,15 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
     private void displayReplyPreview(
             final BubbleMessageItemViewHolder viewHolder, final Message message) {
         final var quoted = findQuotedMessage(message);
-        final String previewText =
-                quoted != null && !Strings.isNullOrEmpty(quoted.getBody())
-                        ? quoted.getBody().replaceAll("(?m)^> ?", "").replaceAll("\\s+", " ").trim()
-                        : message.getReplyPreview();
-        if (message.isReply() && !Strings.isNullOrEmpty(previewText)) {
+        final CharSequence previewText = replyPreviewText(message, quoted);
+        final boolean hasPreview = previewText != null && previewText.length() > 0;
+        if (message.isReply() && hasPreview) {
+            final var senderColor = replySenderColor(message, quoted);
             viewHolder.replyPreview().setVisibility(View.VISIBLE);
-            viewHolder.replyPreviewSender().setText(getReplySender(message));
+            viewHolder.replyPreviewAccent().setBackgroundTintList(
+                    ColorStateList.valueOf(senderColor));
+            viewHolder.replyPreviewSender().setText(getReplySender(message, quoted));
+            viewHolder.replyPreviewSender().setTextColor(senderColor);
             viewHolder.replyPreviewBody().setText(previewText);
             viewHolder.replyPreview().setClickable(true);
             viewHolder.replyPreview().setOnClickListener(
@@ -1434,6 +1502,56 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
     }
 
     /**
+     * What the quote card shows as the quoted message's content.
+     *
+     * <p>Runs the resolved message through the same preview formatter the conversation list uses,
+     * so a quoted image reads as "Image" rather than as the raw URL its body happens to hold, and a
+     * quoted call, location or undecryptable message gets its own label. Only when the quoted
+     * message is outside the loaded range does this fall back to the id-only preview the sender
+     * supplied.
+     */
+    private CharSequence replyPreviewText(final Message message, final Message quoted) {
+        if (quoted != null) {
+            final var preview = UIHelper.getMessagePreview(activity, quoted, ' ').first;
+            // A transfer in a state with no label of its own previews as the empty string, which
+            // would hide the card altogether and leave the reply looking like a plain message.
+            if (preview != null && preview.length() > 0) {
+                return preview;
+            }
+        }
+        return message.getReplyPreview();
+    }
+
+    /**
+     * Colour identifying the quoted sender, applied to the card's accent bar and name.
+     *
+     * <p>Derived from the sender rather than fixed so that, in a channel, two quote cards for
+     * different people are told apart at a glance - the same cue the avatars already give. Falls
+     * back to the theme accent while the quoted message is unresolved, because the reply only
+     * carries an address, and colouring from that would disagree with the colour the same person
+     * gets once their message loads.
+     */
+    private int replySenderColor(final Message message, final Message quoted) {
+        final var fallback =
+                MaterialColors.getColor(
+                        this.activity,
+                        com.google.android.material.R.attr.colorTertiary,
+                        Color.TRANSPARENT);
+        if (quoted == null) {
+            return fallback;
+        }
+        if (quoted.getStatus() != Message.STATUS_RECEIVED) {
+            return fallback;
+        }
+        final var counterpart = quoted.getCounterpart();
+        if (counterpart == null) {
+            return fallback;
+        }
+        return MaterialColors.harmonizeWithPrimary(
+                this.activity, UIHelper.getColorForName(counterpart.toString()));
+    }
+
+    /**
      * The message a reply is quoting, or null when it is not in the loaded range.
      *
      * <p>Preferred over the stored {@code replyPreview} for display. That field is only reliable
@@ -1442,28 +1560,48 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
      * the "quote" ends up being a copy of the reply itself.
      */
     private Message findQuotedMessage(final Message reply) {
-        if (!reply.isReply()) {
-            return null;
-        }
-        final String replyId = reply.getReplyId();
-        if (Strings.isNullOrEmpty(replyId)) {
-            return null;
-        }
-        for (int i = this.messages.size() - 1; i >= 0; --i) {
-            final var candidate = this.messages.get(i);
-            if (replyId.equals(candidate.getReplyIdWireFormat())) {
-                return candidate;
-            }
-        }
-        return null;
+        return quotedMessages().resolve(reply);
     }
 
-    private String getReplySender(final Message message) {
+    /**
+     * The reply index for the current snapshot, built on first use after each replacement. Rebuilt
+     * lazily rather than in {@link #replaceMessages(List)} so a snapshot that never renders a reply
+     * never pays for one.
+     */
+    private QuotedMessages quotedMessages() {
+        var index = this.quotedMessages;
+        if (index == null) {
+            index = QuotedMessages.of(this.messages);
+            this.quotedMessages = index;
+        }
+        return index;
+    }
+
+    /**
+     * The name shown on the quote card.
+     *
+     * <p>Prefers the resolved message's display name - the channel nick, the contact's name, or our
+     * own account name for a reply to ourselves - which is what the row being quoted is labelled
+     * with elsewhere in the conversation. The reply's {@code replyTo} address is only a fallback
+     * for a quote outside the loaded range, and its local part is not a display name at all.
+     */
+    private String getReplySender(final Message message, final Message quoted) {
+        if (quoted != null) {
+            if (quoted.getStatus() != Message.STATUS_RECEIVED) {
+                return activity.getString(R.string.me);
+            }
+            final var displayName = UIHelper.getMessageDisplayName(quoted);
+            if (!Strings.isNullOrEmpty(displayName)) {
+                return displayName;
+            }
+        }
         final String replyTo = message.getReplyTo();
         if (!Strings.isNullOrEmpty(replyTo)) {
             try {
                 final Jid jid = Jid.of(replyTo);
-                return jid.getLocal();
+                final var resource = jid.getResource();
+                // In a channel the address is room@host/nick, where the nick is the display name.
+                return Strings.isNullOrEmpty(resource) ? jid.getLocal() : resource;
             } catch (final IllegalArgumentException ignored) {
                 return replyTo;
             }
@@ -1734,6 +1872,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
 
         protected abstract LinearLayout replyPreview();
 
+        protected abstract View replyPreviewAccent();
+
         protected abstract TextView replyPreviewSender();
 
         protected abstract TextView replyPreviewBody();
@@ -1814,6 +1954,11 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
         @Override
         protected LinearLayout replyPreview() {
             return this.binding.messageContent.replyPreview;
+        }
+
+        @Override
+        protected View replyPreviewAccent() {
+            return this.binding.messageContent.replyPreviewAccent;
         }
 
         @Override
@@ -1899,6 +2044,11 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageI
         @Override
         protected LinearLayout replyPreview() {
             return this.binding.messageContent.replyPreview;
+        }
+
+        @Override
+        protected View replyPreviewAccent() {
+            return this.binding.messageContent.replyPreviewAccent;
         }
 
         @Override

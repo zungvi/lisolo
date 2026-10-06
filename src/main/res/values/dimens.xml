@@ -51,6 +51,7 @@
     <dimen name="bubble_avatar_distance">6dp</dimen>
     <dimen name="message_bubble_corner_radius">18dp</dimen>
     <dimen name="message_bubble_joined_radius">6dp</dimen>
+    <dimen name="reaction_chip_stroke_width">1dp</dimen>
     <!-- The composer is a pill, not a bubble. -->
     <dimen name="composer_corner_radius">24dp</dimen>
     <dimen name="conversation_row_height">72dp</dimen>

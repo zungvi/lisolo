@@ -1143,6 +1143,9 @@
     <string name="server_info_login_mechanism">Login mechanism</string>
     <string name="could_not_add_reaction">Could not add reaction</string>
     <string name="add_reaction">Add reaction…</string>
+    <string name="reactions">Reactions</string>
+    <!-- Chip collapsing the reactions that did not fit in the message bubble. %1$d is how many. -->
+    <string name="reaction_overflow">+%1$d</string>
     <string name="add_reaction_title">Add reaction</string>
     <string name="more_reactions">More reactions</string>
     <string name="could_not_modify_call">Could not modify call</string>
