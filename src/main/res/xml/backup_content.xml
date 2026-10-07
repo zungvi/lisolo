@@ -4,6 +4,7 @@
         domain="sharedpref"
         path="."
         requireFlags="clientSideEncryption" />
+    <exclude domain="sharedpref" path="zungvi_ai.xml" />
     <include
         domain="database"
         path="."

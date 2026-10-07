@@ -1,5 +1,7 @@
 package eu.siacs.conversations.ai;
 
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -7,7 +9,9 @@ import androidx.annotation.VisibleForTesting;
 import com.google.common.base.Strings;
 import eu.siacs.conversations.BuildConfig;
 import eu.siacs.conversations.Config;
+import eu.siacs.conversations.Conversations;
 import java.io.IOException;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -86,10 +90,9 @@ public final class ZungviAi {
         }
     }
 
-    /** False when this build has no credentials, which hides the AI settings entirely. */
+    /** True when this build has the public AI gateway configured. */
     public static boolean isConfigured() {
-        return !Strings.isNullOrEmpty(BuildConfig.ZUNGVI_AI_TOKEN)
-                && !Strings.isNullOrEmpty(BuildConfig.ZUNGVI_AI_BASE_URL);
+        return !Strings.isNullOrEmpty(BuildConfig.ZUNGVI_AI_BASE_URL);
     }
 
     public static Result chat(final String systemPrompt, final String userMessage) {
@@ -110,10 +113,16 @@ public final class ZungviAi {
         } catch (final JSONException e) {
             return Result.failure("Could not prepare the request.");
         }
+        final String accessToken;
+        try {
+            accessToken = accessToken();
+        } catch (final IOException e) {
+            return Result.failure(e.getMessage());
+        }
         final Request request =
                 new Request.Builder()
-                        .url(baseUrl() + "/chat/completions")
-                        .header("Authorization", "Bearer " + BuildConfig.ZUNGVI_AI_TOKEN)
+                        .url(baseUrl() + "/api/v1/mobile/chat/completions")
+                        .header("Authorization", "Bearer " + accessToken)
                         .post(RequestBody.create(payload, JSON))
                         .build();
         try (final Response response = CLIENT.newCall(request).execute()) {
@@ -126,6 +135,69 @@ public final class ZungviAi {
         } catch (final IOException e) {
             Log.d(Config.LOGTAG, "ZUNGVIAI request to " + request.url() + " failed", e);
             return Result.failure("Could not reach Zungvi AI. Check your connection.");
+        }
+    }
+
+    /** Gets a revocable, per-install credential. The project API token stays on the server. */
+    private static String accessToken() throws IOException {
+        synchronized (ZungviAi.class) {
+            final SharedPreferences preferences =
+                    Conversations.getContext()
+                            .getSharedPreferences("zungvi_ai", Context.MODE_PRIVATE);
+            final String storedToken = preferences.getString("access_token", null);
+            if (!Strings.isNullOrEmpty(storedToken)) {
+                return storedToken;
+            }
+
+            String clientId = preferences.getString("client_id", null);
+            if (Strings.isNullOrEmpty(clientId)) {
+                clientId = UUID.randomUUID().toString();
+                preferences.edit().putString("client_id", clientId).apply();
+            }
+
+            final String requestBody;
+            try {
+                requestBody = new JSONObject().put("client_id", clientId).toString();
+            } catch (final JSONException e) {
+                throw new IOException("Could not prepare AI access.", e);
+            }
+            final Request request =
+                    new Request.Builder()
+                            .url(baseUrl() + "/api/v1/mobile/token")
+                            .post(RequestBody.create(requestBody, JSON))
+                            .build();
+            try (final Response response = CLIENT.newCall(request).execute()) {
+                final ResponseBody body = response.body();
+                final String raw = body == null ? null : body.string();
+                if (!response.isSuccessful() || Strings.isNullOrEmpty(raw)) {
+                    throw new IOException(
+                            response.isSuccessful()
+                                    ? "Zungvi AI could not issue access."
+                                    : errorMessage(raw, "Zungvi AI access was rejected."));
+                }
+                final String token;
+                try {
+                    token = new JSONObject(raw).optString("token", null);
+                } catch (final JSONException e) {
+                    throw new IOException("Zungvi AI returned invalid access details.", e);
+                }
+                if (Strings.isNullOrEmpty(token)) {
+                    throw new IOException("Zungvi AI returned invalid access details.");
+                }
+                preferences.edit().putString("access_token", token).apply();
+                return token;
+            }
+        }
+    }
+
+    private static String errorMessage(final String raw, final String fallback) {
+        if (Strings.isNullOrEmpty(raw)) {
+            return fallback;
+        }
+        try {
+            return detailOr(new JSONObject(raw), fallback);
+        } catch (final JSONException e) {
+            return fallback;
         }
     }
 
