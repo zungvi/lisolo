@@ -36,6 +36,14 @@
             android:summary="@string/pref_ai_scam_triage_summary"
             android:title="@string/pref_ai_scam_triage" />
 
+        <SwitchPreferenceCompat
+            android:defaultValue="@bool/ai_suggestions"
+            android:dependency="ai_enabled"
+            android:icon="@drawable/ic_auto_awesome_24dp"
+            android:key="ai_suggestions"
+            android:summary="@string/pref_ai_suggestions_summary"
+            android:title="@string/pref_ai_suggestions" />
+
     <PreferenceCategory android:title="@string/pref_ai_category_privacy">
         <Preference
             android:key="ai_privacy_notice"

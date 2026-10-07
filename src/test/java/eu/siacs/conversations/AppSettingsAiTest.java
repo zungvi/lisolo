@@ -27,6 +27,7 @@ public class AppSettingsAiTest {
         assertFalse(settings.isAiTranslation());
         assertFalse(settings.isAiCatchUp());
         assertFalse(settings.isAiScamTriage());
+        assertFalse(settings.isAiSuggestions());
     }
 
     @Test
@@ -38,6 +39,7 @@ public class AppSettingsAiTest {
         assertTrue(settings.isAiTranslation());
         assertTrue(settings.isAiCatchUp());
         assertTrue(settings.isAiScamTriage());
+        assertTrue(settings.isAiSuggestions());
     }
 
     /** The regression that matters: a stale per-feature true must not survive the master switch. */
@@ -47,22 +49,26 @@ public class AppSettingsAiTest {
         set(AppSettings.AI_TRANSLATION, true);
         set(AppSettings.AI_CATCH_UP, true);
         set(AppSettings.AI_SCAM_TRIAGE, true);
+        set(AppSettings.AI_SUGGESTIONS, true);
         final var settings = new AppSettings(context());
 
         assertFalse(settings.isAiTranslation());
         assertFalse(settings.isAiCatchUp());
         assertFalse(settings.isAiScamTriage());
+        assertFalse(settings.isAiSuggestions());
     }
 
     @Test
     public void featuresCanBeTurnedOffIndividuallyWhileAiStaysOn() {
         set(AppSettings.AI_ENABLED, true);
         set(AppSettings.AI_CATCH_UP, false);
+        set(AppSettings.AI_SUGGESTIONS, false);
         final var settings = new AppSettings(context());
 
         assertTrue(settings.isAiEnabled());
         assertTrue(settings.isAiTranslation());
         assertFalse(settings.isAiCatchUp());
+        assertFalse(settings.isAiSuggestions());
     }
 
     private static void set(final String key, final boolean value) {

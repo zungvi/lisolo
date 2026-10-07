@@ -24,6 +24,12 @@ import java.util.concurrent.TimeUnit;
  */
 public final class MessageTranslator {
 
+    /**
+     * A translation is about as long as its input, and chat messages are short. This is generous
+     * for one message and still cuts off a model that starts rambling instead of translating.
+     */
+    private static final int TRANSLATION_MAX_TOKENS = 512;
+
     /** ML Kit downloads a model per language pair; allow for a slow first run on mobile data. */
     private static final long MODEL_TIMEOUT_SECONDS = 120;
 
@@ -70,8 +76,15 @@ public final class MessageTranslator {
             // downgrade for exactly the language that needed on-device translation, so say so.
             Log.d(Config.LOGTAG, "ZUNGVIAI on-device translation unavailable, using server");
         }
+        // Medium, named explicitly rather than left to the server: translating one chat message
+        // is short work that the medium tier does well, and asking for it keeps the request off
+        // whatever larger model the API project pins.
         return AiTask.Outcome.of(
-                ZungviAi.chat(AiPrompts.translate(target.getDisplayLanguage(Locale.ENGLISH)), body));
+                ZungviAi.chat(
+                        ZungviAi.MODEL_MEDIUM,
+                        AiPrompts.translate(target.getDisplayLanguage(Locale.ENGLISH)),
+                        body,
+                        TRANSLATION_MAX_TOKENS));
     }
 
     /** Returns null when ML Kit cannot do this pair, so the caller can fall back. */

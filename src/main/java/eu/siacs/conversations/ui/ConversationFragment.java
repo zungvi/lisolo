@@ -61,6 +61,8 @@ import androidx.databinding.DataBindingUtil;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 import androidx.lifecycle.Lifecycle;
+import com.google.android.material.chip.Chip;
+import com.google.android.material.color.MaterialColors;
 import com.google.android.material.transition.MaterialSharedAxis;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.common.base.Optional;
@@ -78,6 +80,7 @@ import eu.siacs.conversations.Config;
 import eu.siacs.conversations.ai.AiTask;
 import eu.siacs.conversations.ai.CatchUp;
 import eu.siacs.conversations.ai.MessageTranslator;
+import eu.siacs.conversations.ai.ReplySuggestions;
 import eu.siacs.conversations.ai.ScamTriage;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.crypto.PgpEngine;
@@ -2950,6 +2953,7 @@ public class ConversationFragment extends XmppFragment
             ++this.messageRenderGeneration;
         }
         maybeCheckForScam(this.conversation);
+        maybeSuggestReplies(this.conversation);
         refresh(false);
         requireXmppActivity().invalidateOptionsMenu();
         this.conversation.messagesLoaded.set(true);
@@ -4090,6 +4094,83 @@ public class ConversationFragment extends XmppFragment
         return null;
     }
 
+    /**
+     * Asks for reply suggestions for a chat that is waiting on the user's answer.
+     *
+     * <p>Nothing is shown while the request is in flight. The row appears only when a full set has
+     * come back, because a placeholder row would move the newest message up and down at the one
+     * moment the user is reading it.
+     */
+    private void maybeSuggestReplies(final Conversation conversation) {
+        hideSuggestions();
+        if (conversation == null || !new AppSettings(requireContext()).isAiSuggestions()) {
+            return;
+        }
+        // Somebody already typing has answered the question these would have answered, and
+        // replacing their draft with a chip tap would be worse than offering nothing.
+        if (this.binding != null && this.binding.textinput.getText().length() > 0) {
+            return;
+        }
+        final List<Message> messages = new ArrayList<>();
+        conversation.populateWithMessages(messages);
+        ReplySuggestions.suggest(
+                messages,
+                Locale.getDefault(),
+                suggestions -> {
+                    // The answer outlives the chat it was asked for: by now the user may have
+                    // moved to another conversation, or started typing their own reply.
+                    if (!isAdded()
+                            || this.binding == null
+                            || this.conversation != conversation
+                            || this.binding.textinput.getText().length() > 0) {
+                        return;
+                    }
+                    showSuggestions(suggestions);
+                });
+    }
+
+    private void showSuggestions(final List<String> suggestions) {
+        final var chips = this.binding.aiSuggestionChips;
+        chips.removeAllViews();
+        for (final String suggestion : suggestions) {
+            chips.addView(suggestionChip(suggestion));
+        }
+        this.binding.aiSuggestions.setVisibility(View.VISIBLE);
+    }
+
+    private Chip suggestionChip(final String suggestion) {
+        final Chip chip = new Chip(requireContext());
+        chip.setText(suggestion);
+        chip.setChipBackgroundColor(
+                MaterialColors.getColorStateListOrNull(
+                        requireContext(),
+                        com.google.android.material.R.attr.colorSurfaceContainerHigh));
+        chip.setOnClickListener(
+                v -> {
+                    // Put it in the composer rather than sending it. The user still owns the
+                    // message: a guess sent on one tap is a guess sent in their name.
+                    this.binding.textinput.setText(suggestion);
+                    this.binding.textinput.setSelection(this.binding.textinput.length());
+                    this.binding.textinput.requestFocus();
+                    hideSuggestions();
+                });
+        return chip;
+    }
+
+    /**
+     * Also the reset for a chat that no longer qualifies, so stale chips cannot outlive it.
+     *
+     * <p>Returns early when the row is already hidden: this runs on every keystroke, and tearing
+     * down views that are not there costs work on the typing path for nothing.
+     */
+    private void hideSuggestions() {
+        if (this.binding == null || this.binding.aiSuggestions.getVisibility() == View.GONE) {
+            return;
+        }
+        this.binding.aiSuggestions.setVisibility(View.GONE);
+        this.binding.aiSuggestionChips.removeAllViews();
+    }
+
     private void updateScamBanner(final Conversation conversation) {
         if (this.binding == null) {
             return;
@@ -4366,6 +4447,11 @@ public class ConversationFragment extends XmppFragment
 
     @Override
     public void onTextChanged() {
+        // Once there is a draft the suggestions are answering a question the user has moved past,
+        // and a chip tap would overwrite what they wrote.
+        if (this.binding != null && this.binding.textinput.getText().length() > 0) {
+            runOnUiThread(this::hideSuggestions);
+        }
         if (conversation != null && conversation.getCorrectingMessage() != null) {
             runOnUiThread(this::updateSendButton);
         }

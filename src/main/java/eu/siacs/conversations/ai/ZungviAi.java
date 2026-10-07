@@ -34,10 +34,24 @@ public final class ZungviAi {
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
     /**
-     * The 7b model is the smallest that stays coherent on the summarisation and classification
-     * prompts; 3b produced confidently wrong output in testing.
+     * Size tiers, not model names. The server resolves these to whatever weights it currently
+     * runs, so re-pointing a tier is a server change and not an app release. Sending a raw tag
+     * like "qwen2.5:7b-instruct" still works, but it pins this app to one deployment.
+     *
+     * <p>A tier a caller asks for beats the model the API project pins, which is the point: this
+     * app wants a cheap model for short, frequent tasks even when the project pins a large one.
      */
-    public static final String DEFAULT_MODEL = "qwen2.5:7b-instruct";
+    public static final String MODEL_SMALL = "small";
+
+    public static final String MODEL_MEDIUM = "medium";
+
+    public static final String MODEL_LARGE = "large";
+
+    /**
+     * Medium is the smallest tier that stays coherent on the summarisation and classification
+     * prompts; small produced confidently wrong output in testing.
+     */
+    public static final String DEFAULT_MODEL = MODEL_MEDIUM;
 
     private static final OkHttpClient CLIENT =
             new OkHttpClient.Builder()

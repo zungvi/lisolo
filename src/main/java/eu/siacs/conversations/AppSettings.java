@@ -72,6 +72,7 @@ public class AppSettings {
     public static final String AI_TRANSLATION = "ai_translation";
     public static final String AI_CATCH_UP = "ai_catch_up";
     public static final String AI_SCAM_TRIAGE = "ai_scam_triage";
+    public static final String AI_SUGGESTIONS = "ai_suggestions";
 
     public static final String BACKUP_LOCATION = "backup_location";
     public static final String AUTO_ACCEPT_FILE_SIZE = "auto_accept_file_size";
@@ -276,6 +277,10 @@ public class AppSettings {
 
     public boolean isAiScamTriage() {
         return isAiEnabled() && getBooleanPreference(AI_SCAM_TRIAGE, R.bool.ai_scam_triage);
+    }
+
+    public boolean isAiSuggestions() {
+        return isAiEnabled() && getBooleanPreference(AI_SUGGESTIONS, R.bool.ai_suggestions);
     }
 
     private boolean getBooleanPreference(@NonNull final String name, @BoolRes final int res) {

@@ -89,6 +89,23 @@ public class ZungviAiTest {
         assertEquals("hello", messages.getJSONObject(1).getString("content"));
     }
 
+    /**
+     * The app asks for a size tier, not an Ollama tag. The server resolves it and a caller's tier
+     * beats the model its API project pins, so this string is the contract between the two.
+     */
+    @Test
+    public void defaultModelIsTheMediumTierRatherThanADeploymentSpecificTag() throws Exception {
+        assertEquals("medium", ZungviAi.MODEL_MEDIUM);
+        assertEquals(ZungviAi.MODEL_MEDIUM, ZungviAi.DEFAULT_MODEL);
+        assertEquals("small", ZungviAi.MODEL_SMALL);
+        assertEquals("large", ZungviAi.MODEL_LARGE);
+
+        final var payload =
+                new JSONObject(ZungviAi.buildPayload(ZungviAi.DEFAULT_MODEL, "be terse", "hi", 64));
+
+        assertEquals("medium", payload.getString("model"));
+    }
+
     @Test
     public void payloadOmitsAnEmptySystemTurn() throws Exception {
         final var payload = new JSONObject(ZungviAi.buildPayload("m", "", "hello", 64));

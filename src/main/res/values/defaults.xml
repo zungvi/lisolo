@@ -60,4 +60,5 @@
     <bool name="ai_translation">true</bool>
     <bool name="ai_catch_up">true</bool>
     <bool name="ai_scam_triage">true</bool>
+    <bool name="ai_suggestions">true</bool>
 </resources>
