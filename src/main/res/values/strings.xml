@@ -239,6 +239,9 @@
     <string name="channel_full_jid_example">channel@conference.example.com/nick</string>
     <string name="channel_bare_jid_example">channel@conference.example.com</string>
     <string name="save_as_bookmark">Save as bookmark</string>
+    <string name="pin_bookmark">Pin bookmark</string>
+    <string name="unpin_bookmark">Unpin bookmark</string>
+    <string name="pinned_bookmark">Pinned bookmark</string>
     <string name="delete_bookmark">Delete bookmark</string>
     <string name="destroy_room">Destroy group chat</string>
     <string name="destroy_channel">Destroy channel</string>

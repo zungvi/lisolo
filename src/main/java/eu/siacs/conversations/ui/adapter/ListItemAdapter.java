@@ -31,6 +31,7 @@ import eu.siacs.conversations.utils.IrregularUnicodeDetector;
 import eu.siacs.conversations.utils.UIHelper;
 import eu.siacs.conversations.utils.XEP0392Helper;
 import eu.siacs.conversations.xmpp.Jid;
+import im.conversations.android.model.Bookmark;
 import im.conversations.android.xmpp.model.stanza.Presence;
 import java.util.List;
 
@@ -144,6 +145,10 @@ public class ListItemAdapter extends ArrayAdapter<ListItem> {
             viewHolder.jid.setVisibility(View.GONE);
         }
         viewHolder.name.setText(item.getDisplayName());
+        viewHolder.pinnedIndicator.setVisibility(
+                item instanceof Bookmark bookmark && bookmark.isPinned()
+                        ? View.VISIBLE
+                        : View.GONE);
         AvatarWorkerTask.loadAvatar(item, viewHolder.avatar, R.dimen.avatar);
         return view;
     }
@@ -160,6 +165,7 @@ public class ListItemAdapter extends ArrayAdapter<ListItem> {
         private TextView name;
         private TextView jid;
         private ImageView avatar;
+        private ImageView pinnedIndicator;
         private ConstraintLayout tags;
         private Flow flowWidget;
 
@@ -170,6 +176,7 @@ public class ListItemAdapter extends ArrayAdapter<ListItem> {
             viewHolder.name = binding.contactDisplayName;
             viewHolder.jid = binding.contactJid;
             viewHolder.avatar = binding.contactPhoto;
+            viewHolder.pinnedIndicator = binding.pinnedIndicator;
             viewHolder.tags = binding.tags;
             viewHolder.flowWidget = binding.flowWidget;
             binding.getRoot().setTag(viewHolder);

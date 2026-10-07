@@ -2,6 +2,11 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android" >
 
     <item
+        android:id="@+id/context_toggle_bookmark_pin"
+        android:title="@string/pin_bookmark"
+        android:visible="false" />
+
+    <item
         android:id="@+id/context_delete_conference"
         android:title="@string/delete_bookmark"/>
     <item

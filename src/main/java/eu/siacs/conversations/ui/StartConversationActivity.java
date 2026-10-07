@@ -89,6 +89,7 @@ import eu.siacs.conversations.xmpp.XmppConnection;
 import eu.siacs.conversations.xmpp.manager.BlockingManager;
 import eu.siacs.conversations.xmpp.manager.BookmarkManager;
 import eu.siacs.conversations.xmpp.manager.MultiUserChatManager;
+import eu.siacs.conversations.xmpp.manager.NativeBookmarkManager;
 import im.conversations.android.model.Bookmark;
 import im.conversations.android.model.ImmutableBookmark;
 import im.conversations.android.xmpp.model.stanza.Presence;
@@ -612,6 +613,23 @@ public class StartConversationActivity extends XmppActivity
                     filter(mSearchEditText.getText().toString());
                 });
         builder.create().show();
+    }
+
+    protected void toggleConferencePin() {
+        final int position = conference_context_id;
+        if (position < 0 || position >= conferences.size()) {
+            return;
+        }
+        final Bookmark bookmark = (Bookmark) conferences.get(position);
+        final var connection = bookmark.getAccount().getXmppConnection();
+        if (connection == null
+                || !connection.getManager(NativeBookmarkManager.class).hasFeature()) {
+            return;
+        }
+        connection
+                .getManager(BookmarkManager.class)
+                .setPinned(bookmark, !bookmark.isPinned());
+        filter(mSearchEditText.getText().toString());
     }
 
     @SuppressLint("InflateParams")
@@ -1196,7 +1214,17 @@ public class StartConversationActivity extends XmppActivity
                 }
             }
         }
-        Collections.sort(this.conferences);
+        this.conferences.sort(
+                (first, second) -> {
+                    final boolean firstPinned =
+                            first instanceof Bookmark bookmark && bookmark.isPinned();
+                    final boolean secondPinned =
+                            second instanceof Bookmark bookmark && bookmark.isPinned();
+                    if (firstPinned != secondPinned) {
+                        return firstPinned ? -1 : 1;
+                    }
+                    return first.compareTo(second);
+                });
         mConferenceAdapter.notifyDataSetChanged();
     }
 
@@ -1388,6 +1416,16 @@ public class StartConversationActivity extends XmppActivity
                 final Conversation conversation = activity.xmppConnectionService.find(bookmark);
                 final MenuItem share = menu.findItem(R.id.context_share_uri);
                 final MenuItem delete = menu.findItem(R.id.context_delete_conference);
+                final MenuItem togglePin = menu.findItem(R.id.context_toggle_bookmark_pin);
+                final var connection = bookmark.getAccount().getXmppConnection();
+                final boolean pinningSupported =
+                        connection != null
+                                && connection
+                                        .getManager(NativeBookmarkManager.class)
+                                        .hasFeature();
+                togglePin.setVisible(pinningSupported);
+                togglePin.setTitle(
+                        bookmark.isPinned() ? R.string.unpin_bookmark : R.string.pin_bookmark);
                 if (conversation != null) {
                     delete.setTitle(R.string.delete_and_close);
                 } else {
@@ -1445,6 +1483,10 @@ public class StartConversationActivity extends XmppActivity
                     break;
                 case R.id.context_delete_conference:
                     activity.deleteConference();
+                    break;
+                case R.id.context_toggle_bookmark_pin:
+                    activity.toggleConferencePin();
+                    break;
             }
             return true;
         }

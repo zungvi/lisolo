@@ -15,8 +15,12 @@ import eu.siacs.conversations.entities.MucOptions;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.xmpp.Jid;
 import eu.siacs.conversations.xmpp.XmppConnection;
+import eu.siacs.conversations.xml.Namespace;
 import im.conversations.android.model.Bookmark;
 import im.conversations.android.model.ImmutableBookmark;
+import im.conversations.android.xmpp.model.bookmark2.Extensions;
+import im.conversations.android.xmpp.model.bookmarkspinning.Pinned;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -92,6 +96,35 @@ public class BookmarkManager extends AbstractManager {
                     }
                 },
                 MoreExecutors.directExecutor());
+    }
+
+    /**
+     * Adds or removes the XEP-0469 marker and republishes the bookmark. Existing bookmark
+     * extensions are retained so changing pin state does not discard unrelated metadata. Callers
+     * should only expose this action when native bookmarks are supported by the account's server.
+     */
+    public void setPinned(final Bookmark bookmark, final boolean pinned) {
+        final var extensions = new Extensions();
+        final var existingExtensions = bookmark.getExtensions();
+        if (existingExtensions != null) {
+            extensions.setChildren(new ArrayList<>(existingExtensions.getChildren()));
+        }
+        if (pinned) {
+            if (!extensions.hasExtension(Pinned.class)) {
+                extensions.addExtension(new Pinned());
+            }
+        } else {
+            extensions.getChildren().removeIf(
+                    child ->
+                            Pinned.ELEMENT.equals(child.getName())
+                                    && Namespace.BOOKMARKS_PINNING.equals(child.getNamespace()));
+        }
+        final var updatedBookmark =
+                ImmutableBookmark.builder()
+                        .from(bookmark)
+                        .extensions(extensions.getChildren().isEmpty() ? null : extensions)
+                        .build();
+        create(updatedBookmark);
     }
 
     public void delete(final Bookmark bookmark) {

@@ -106,6 +106,8 @@ public final class Namespace {
     public static final String COMMANDS = "http://jabber.org/protocol/commands";
     public static final String BOOKMARKS2 = "urn:xmpp:bookmarks:1";
     public static final String BOOKMARKS2_COMPAT = BOOKMARKS2 + "#compat";
+    // XEP-0469 is Experimental and applies only to XEP-0402 native bookmarks.
+    public static final String BOOKMARKS_PINNING = "urn:xmpp:bookmarks-pinning:0";
     public static final String PRE_AUTHENTICATED_IN_BAND_REGISTRATION = "urn:xmpp:ibr-token:0";
     public static final String PARS = "urn:xmpp:pars:0";
     public static final String EASY_ONBOARDING_INVITE = "urn:xmpp:invite#invite";

@@ -9,6 +9,7 @@ import eu.siacs.conversations.utils.UIHelper;
 import eu.siacs.conversations.xmpp.Jid;
 import eu.siacs.conversations.xmpp.manager.MultiUserChatManager;
 import im.conversations.android.xmpp.model.bookmark2.Extensions;
+import im.conversations.android.xmpp.model.bookmarkspinning.Pinned;
 import im.conversations.android.xmpp.model.roster.Group;
 import java.util.Collection;
 import java.util.Collections;
@@ -47,6 +48,15 @@ public abstract class Bookmark implements ListItem {
 
     @Nullable
     public abstract Extensions getExtensions();
+
+    /**
+     * Returns whether this native bookmark carries the pin marker defined by experimental
+     * XEP-0469.
+     */
+    public boolean isPinned() {
+        final var extensions = getExtensions();
+        return extensions != null && extensions.hasExtension(Pinned.class);
+    }
 
     @Override
     @Value.Derived
