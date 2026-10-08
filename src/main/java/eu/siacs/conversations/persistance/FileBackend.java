@@ -34,6 +34,7 @@ import com.google.common.io.ByteStreams;
 import eu.siacs.conversations.AppSettings;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
+import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.entities.DownloadableFile;
 import eu.siacs.conversations.entities.Message;
 import eu.siacs.conversations.services.XmppConnectionService;
@@ -466,10 +467,23 @@ public class FileBackend {
     }
 
     public void updateMediaScanner(File file) {
-        updateMediaScanner(file, null);
+        updateMediaScanner(file, null, null);
     }
 
     public void updateMediaScanner(File file, final Runnable callback) {
+        updateMediaScanner(file, null, callback);
+    }
+
+    public void updateMediaScanner(
+            File file, final Message message, final Runnable callback) {
+        if (message != null
+                && isGalleryMedia(file)
+                && !message.getConversation().isMediaGalleryVisible()) {
+            if (callback != null) {
+                callback.run();
+            }
+            return;
+        }
         MediaScannerConnection.scanFile(
                 mXmppConnectionService,
                 new String[] {file.getAbsolutePath()},
@@ -490,6 +504,51 @@ public class FileBackend {
                         }
                     }
                 });
+    }
+
+    public void setMediaGalleryVisibility(
+            final Conversation conversation, final boolean visible) {
+        new Thread(
+                        () -> {
+                            final var paths =
+                                    mXmppConnectionService.databaseBackend.getRelativeFilePaths(
+                                            conversation.getAccountUuid(),
+                                            conversation.getAddress().asBareJid(),
+                                            0);
+                            for (final var path : paths) {
+                                final File file = getFileForPath(path.path);
+                                if (!file.isFile() || !isGalleryMedia(file)) {
+                                    continue;
+                                }
+                                if (visible) {
+                                    updateMediaScanner(file);
+                                } else {
+                                    removeFromMediaStore(file);
+                                }
+                            }
+                        },
+                        "media-gallery-visibility")
+                .start();
+    }
+
+    private static boolean isGalleryMedia(final File file) {
+        final String mime =
+                MimeUtils.guessMimeTypeFromExtension(
+                        MimeUtils.extractRelevantExtension(file.getName()));
+        return mime != null && (mime.startsWith("image/") || mime.startsWith("video/"));
+    }
+
+    private void removeFromMediaStore(final File file) {
+        try {
+            mXmppConnectionService
+                    .getContentResolver()
+                    .delete(
+                            MediaStore.Files.getContentUri("external"),
+                            MediaStore.MediaColumns.DATA + "=?",
+                            new String[] {file.getAbsolutePath()});
+        } catch (final RuntimeException e) {
+            Log.d(Config.LOGTAG, "could not hide conversation media from gallery", e);
+        }
     }
 
     public boolean deleteFile(Message message) {

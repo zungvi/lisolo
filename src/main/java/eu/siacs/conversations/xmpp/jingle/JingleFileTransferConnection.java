@@ -960,6 +960,7 @@ public class JingleFileTransferConnection extends AbstractJingleConnection
                         .getFileBackend()
                         .updateMediaScanner(
                                 file,
+                                message,
                                 () ->
                                         JingleFileTransferConnection.this
                                                 .xmppConnectionService
@@ -969,7 +970,7 @@ public class JingleFileTransferConnection extends AbstractJingleConnection
         } else if (message.getEncryption() == Message.ENCRYPTION_PGP) {
             id.account.getPgpDecryptionService().decrypt(message, false);
         } else {
-            xmppConnectionService.getFileBackend().updateMediaScanner(file);
+            xmppConnectionService.getFileBackend().updateMediaScanner(file, message, null);
         }
     }
 

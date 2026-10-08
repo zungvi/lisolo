@@ -591,6 +591,11 @@ public class ConferenceDetailsActivity extends XmppActivity
         if (mConversation == null) {
             return;
         }
+        this.binding.mediaVisibilitySwitch.setOnCheckedChangeListener(null);
+        this.binding.mediaVisibilitySwitch.setChecked(mConversation.isMediaGalleryVisible());
+        this.binding.mediaVisibilitySwitch.setOnCheckedChangeListener(
+                (button, visible) ->
+                        xmppConnectionService.setMediaGalleryVisible(mConversation, visible));
         final MucOptions mucOptions = mConversation.getMucOptions();
         final User self = mucOptions.getSelf();
         final String account = mConversation.getAccount().getJid().asBareJid().toString();

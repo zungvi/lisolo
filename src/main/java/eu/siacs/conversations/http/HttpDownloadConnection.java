@@ -217,6 +217,7 @@ public class HttpDownloadConnection implements Transferable {
                 .getFileBackend()
                 .updateMediaScanner(
                         file,
+                        message,
                         () -> {
                             if (notifyAfterScan) {
                                 mXmppConnectionService.getNotificationService().push(message);

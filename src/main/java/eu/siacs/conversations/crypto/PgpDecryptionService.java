@@ -252,7 +252,8 @@ public class PgpDecryptionService {
                             skipNotificationPush = true;
                             mXmppConnectionService
                                     .getFileBackend()
-                                    .updateMediaScanner(outputFile, () -> notifyIfPending(message));
+                                    .updateMediaScanner(
+                                            outputFile, message, () -> notifyIfPending(message));
                             break;
                         case OpenPgpApi.RESULT_CODE_USER_INTERACTION_REQUIRED:
                             synchronized (PgpDecryptionService.this) {

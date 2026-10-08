@@ -792,6 +792,8 @@
     <string name="pref_more_notification_settings_summary">Importance, Sound, Vibrate</string>
     <string name="video_compression_channel_name">Video compression</string>
     <string name="view_media">View media</string>
+    <string name="media_visibility">Show media in gallery</string>
+    <string name="media_visibility_summary">Show photos and videos from this conversation in your gallery</string>
     <string name="group_chat_members">Participants</string>
     <string name="media_browser">Media browser</string>
     <string name="security_violation_not_attaching_file">File omitted due to security violation.</string>

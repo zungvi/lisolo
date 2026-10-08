@@ -49,6 +49,7 @@ import eu.siacs.conversations.crypto.axolotl.FingerprintStatus;
 import eu.siacs.conversations.crypto.axolotl.XmppAxolotlSession;
 import eu.siacs.conversations.databinding.ActivityContactDetailsBinding;
 import eu.siacs.conversations.entities.Account;
+import eu.siacs.conversations.entities.Conversation;
 import eu.siacs.conversations.entities.Contact;
 import eu.siacs.conversations.entities.ListItem;
 import eu.siacs.conversations.services.AbstractQuickConversationsService;
@@ -95,6 +96,7 @@ public class ContactDetailsActivity extends OmemoActivity
     private MediaAdapter mMediaAdapter;
 
     private Contact contact;
+    private Conversation mediaConversation;
     private final DialogInterface.OnClickListener removeFromRoster =
             new DialogInterface.OnClickListener() {
 
@@ -440,6 +442,17 @@ public class ContactDetailsActivity extends OmemoActivity
     private void populateView() {
         if (contact == null) {
             return;
+        }
+        mediaConversation = xmppConnectionService.find(contact);
+        binding.mediaVisibilityCard.setVisibility(
+                mediaConversation == null ? View.GONE : View.VISIBLE);
+        binding.mediaVisibilitySwitch.setOnCheckedChangeListener(null);
+        if (mediaConversation != null) {
+            binding.mediaVisibilitySwitch.setChecked(mediaConversation.isMediaGalleryVisible());
+            binding.mediaVisibilitySwitch.setOnCheckedChangeListener(
+                    (button, visible) ->
+                            xmppConnectionService.setMediaGalleryVisible(
+                                    mediaConversation, visible));
         }
         invalidateOptionsMenu();
         setTitle(contact.getDisplayName());

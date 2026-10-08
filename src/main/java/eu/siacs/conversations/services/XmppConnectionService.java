@@ -3252,6 +3252,17 @@ public class XmppConnectionService extends Service {
         mDatabaseWriterExecutor.execute(() -> databaseBackend.updateConversation(conversation));
     }
 
+    public void setMediaGalleryVisible(
+            final Conversation conversation, final boolean visible) {
+        if (conversation.isMediaGalleryVisible() == visible) {
+            return;
+        }
+        conversation.setAttribute(Conversation.ATTRIBUTE_MEDIA_GALLERY_VISIBLE, visible);
+        updateConversation(conversation);
+        getFileBackend().setMediaGalleryVisibility(conversation, visible);
+        updateConversationUi();
+    }
+
     public void reconnectAccount(
             final Account account, final boolean force, final boolean interactive) {
         synchronized (account) {

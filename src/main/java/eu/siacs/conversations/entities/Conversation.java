@@ -60,6 +60,7 @@ public class Conversation extends AbstractEntity
     public static final String ATTRIBUTE_SCAM_CHECKED = "scam_checked";
 
     public static final String ATTRIBUTE_SCAM_LIKELY = "scam_likely";
+    public static final String ATTRIBUTE_MEDIA_GALLERY_VISIBLE = "media_gallery_visible";
     private static final String ATTRIBUTE_MARKED_UNREAD = "marked_unread";
     static final String ATTRIBUTE_MUC_PASSWORD = "muc_password";
     static final String ATTRIBUTE_CAPS2_HASH = "muc_caps2_hash";
@@ -934,6 +935,10 @@ public class Conversation extends AbstractEntity
                 || getBooleanAttribute(
                         ATTRIBUTE_ALWAYS_NOTIFY,
                         Config.ALWAYS_NOTIFY_BY_DEFAULT || isPrivateAndNonAnonymous());
+    }
+
+    public boolean isMediaGalleryVisible() {
+        return getBooleanAttribute(ATTRIBUTE_MEDIA_GALLERY_VISIBLE, true);
     }
 
     public boolean setAttribute(String key, boolean value) {
