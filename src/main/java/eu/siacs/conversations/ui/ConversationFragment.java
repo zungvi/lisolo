@@ -4014,27 +4014,14 @@ public class ConversationFragment extends XmppFragment
         MessageTranslator.translate(
                 body,
                 Locale.getDefault(),
-                (outcome, onDevice) -> {
+                outcome -> {
                     if (!isAdded()) {
                         return;
                     }
-                    // Nothing to show for a message already in the reader's language; saying so
-                    // beats a sheet that repeats the message back at them.
-                    if (!outcome.isSuccess()
-                            && "already_in_target".equals(outcome.errorMessage)) {
-                        sheet.dismissAllowingStateLoss();
-                        Toast.makeText(
-                                        requireContext(),
-                                        R.string.ai_already_in_your_language,
-                                        Toast.LENGTH_SHORT)
-                                .show();
-                        return;
-                    }
-                    // Say when the text never left the phone: the settings screen promises
-                    // exactly that for Swahili, so it should be visible when it happens.
-                    sheet.deliver(
-                            outcome,
-                            onDevice ? getString(R.string.ai_translated_on_device) : null);
+                    // No on-device note and no "already in your language" shortcut any more.
+                    // Both depended on ML Kit, and asking the model to stand in for its language
+                    // detection was measured and withdrawn - see MessageTranslator.
+                    sheet.deliver(outcome, null);
                 });
     }
 

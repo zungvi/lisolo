@@ -116,9 +116,24 @@ final class AiPrompts {
     }
 
     /** Translation, used only for the languages Zungvi AI handles well. */
+    /**
+     * Asks for the whole sentence, then names the Swahili clock convention.
+     *
+     * <p>Both halves were measured against the live endpoint, not guessed. "Translate the whole
+     * sentence" is load-bearing: given the clock instruction alone the model answered "9:00 AM"
+     * and threw the sentence away, so the reader never learned that "tutakutana" means "we will
+     * meet". With this wording it returned "We will meet at 9:00 AM."
+     *
+     * <p>It is a mitigation and not a fix. See {@link MessageTranslator} for what the model still
+     * gets wrong in Swahili regardless of the prompt.
+     */
     static String translate(final String languageName) {
-        return "Translate the message into %s. Output only the translation, with no preamble, "
-                .formatted(languageName)
-                + "no quotes and no explanation.";
+        return "Translate the message into %s. Translate the whole sentence, not only the "
+                        .formatted(languageName)
+                + "times or numbers in it. "
+                + "Swahili counts hours from six rather than from midnight, so \"saa tatu "
+                + "asubuhi\" is nine in the morning and not three. "
+                + "Output only the translated sentence, with no preamble, no quotes and no "
+                + "explanation.";
     }
 }

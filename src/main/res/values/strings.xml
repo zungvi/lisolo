@@ -1061,8 +1061,6 @@
     <string name="pref_summary_appearance">Theme, Colors, Screenshots, Input</string>
     <string name="ai_translate">Translate</string>
     <string name="ai_translation_title">Translation</string>
-    <string name="ai_translated_on_device">On this device</string>
-    <string name="ai_already_in_your_language">This message is already in your language.</string>
     <string name="ai_catch_up">Catch up</string>
     <string name="ai_catch_up_title">What you missed</string>
     <string name="ai_catch_up_too_few">There is not much to catch up on here.</string>
@@ -1086,9 +1084,9 @@
     <string name="pref_ai_suggestions">Suggest replies</string>
     <string name="pref_ai_suggestions_summary">Offer a few ready answers above the message box</string>
     <string name="ai_suggestions_label">Suggested replies</string>
-    <string name="pref_ai_privacy_notice">Except for Swahili translation, which happens on your phone, these features send the text they need to Zungvi AI as plain text. Zungvi AI can read it, so end-to-end encryption no longer covers it. Translation and Catch up send text only when you ask for them. Two features send text without asking you first: Warn about likely scams sends the first message from anyone who is not in your contacts, and Suggest replies sends the end of a chat when you open one that is waiting on your answer.</string>
+    <string name="pref_ai_privacy_notice">These features send the text they need to Zungvi AI as plain text. Zungvi AI can read it, so end-to-end encryption no longer covers it. Translation and Catch up send text only when you ask for them. Two features send text without asking you first: Warn about likely scams sends the first message from anyone who is not in your contacts, and Suggest replies sends the end of a chat when you open one that is waiting on your answer.</string>
     <string name="ai_consent_title">Turn on AI features?</string>
-    <string name="ai_consent_message">To translate, summarise or check a message, your phone reads it as it normally does and sends the plain text to Zungvi AI. Zungvi AI never gets your keys, but it can read the text you send it, so end-to-end encryption no longer covers that text — including in your encrypted chats.\n\nTranslation and Catch up send text only when you ask for them. Two of these work differently and run by themselves: the scam check sends the first message from anyone who is not in your contacts, and suggested replies send the end of a chat when you open one that is waiting on your answer. Swahili translation happens on your phone and is never sent.\n\nYou can turn any of this off again at any time, and the scam check on its own.</string>
+    <string name="ai_consent_message">To translate, summarise or check a message, your phone reads it as it normally does and sends the plain text to Zungvi AI. Zungvi AI never gets your keys, but it can read the text you send it, so end-to-end encryption no longer covers that text — including in your encrypted chats.\n\nTranslation and Catch up send text only when you ask for them. Two of these work differently and run by themselves: the scam check sends the first message from anyone who is not in your contacts, and suggested replies send the end of a chat when you open one that is waiting on your answer.\n\nEvery translation is sent to Zungvi AI, including Swahili. Nothing is translated on your phone.\n\nYou can turn any of this off again at any time, and the scam check on its own.</string>
     <string name="ai_consent_confirm">Turn on</string>
     <string name="pref_title_security">Security</string>
     <string name="pref_summary_security">E2E Encryption, Blind Trust Before Verification, MITM Detection</string>
