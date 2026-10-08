@@ -85,11 +85,10 @@ dependencies {
     implementation 'org.hsluv:hsluv:1.0'
     implementation 'org.jxmpp:jxmpp-jid:1.1.0'
     implementation 'org.jxmpp:jxmpp-stringprep-libidn:1.1.0'
-    // On-device translation for the AI features. Standalone ML Kit, so it works without Play
-    // Services; the per-language models are downloaded on first use rather than shipped in the
-    // APK. Swahili goes through here instead of Zungvi AI, which mistranslates it.
-    implementation 'com.google.mlkit:translate:17.0.3'
-    implementation 'com.google.mlkit:language-id:17.0.6'
+    // No ML Kit here on purpose. It gave us on-device translation, but it is proprietary Google
+    // code whose native libraries ship inside the APK, and this app is GPLv3 - we cannot offer
+    // corresponding source for a blob we do not have. Translation goes to Zungvi AI instead; see
+    // MessageTranslator for what that cost us on Swahili.
     implementation 'org.minidns:minidns-client:1.1.1'
     implementation 'org.minidns:minidns-dnssec:1.1.1'
     implementation 'org.osmdroid:osmdroid-android:6.1.20'
@@ -120,7 +119,10 @@ android {
     compileSdk 36
 
     defaultConfig {
-        minSdkVersion 23
+        // 24, not 23: Play's automatic protection refuses a bundle below 24, and Android 6.0 is
+        // a fraction of a percent of devices. Drop back to 23 only if you also turn automatic
+        // protection off in the Play Console.
+        minSdkVersion 24
         targetSdkVersion 36
         versionCode 42167
         versionName "2.19.8r2"
@@ -139,7 +141,12 @@ android {
     splits {
         abi {
             universalApk true
-            enable true
+            // An app bundle already splits by ABI on Play's side, and AGP refuses to build one
+            // while manual ABI splits are on - it finds five shrunk-resource sets and stops
+            // (issuetracker.google.com/402800800). The splits still matter for the APKs that
+            // F-Droid and direct downloads use, so keep them on for everything except a
+            // bundle* task.
+            enable !gradle.startParameter.taskNames.any { it.toLowerCase().contains('bundle') }
             reset()
             //noinspection ChromeOsAbiSupport
             include project.ext.abiCodes.keySet() as String[]

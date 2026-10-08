@@ -22,7 +22,7 @@ import org.robolectric.annotation.LooperMode;
 
 /** Uses real RecyclerView layout to exercise the thumb while the chat is idle at its bottom. */
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 23)
+@Config(manifest = Config.NONE, sdk = 24)
 @ConscryptMode(ConscryptMode.Mode.OFF)
 @LooperMode(LooperMode.Mode.PAUSED)
 public class ConversationScrollbarTest {

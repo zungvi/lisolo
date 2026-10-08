@@ -16,7 +16,7 @@ import org.robolectric.annotation.ConscryptMode;
  * only correct if that single call accounts for both.
  */
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 23)
+@Config(manifest = Config.NONE, sdk = 24)
 @ConscryptMode(ConscryptMode.Mode.OFF)
 public class ConversationReadToggleTest {
 

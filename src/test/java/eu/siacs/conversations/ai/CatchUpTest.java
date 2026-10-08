@@ -21,7 +21,7 @@ import org.robolectric.annotation.ConscryptMode;
  * part worth pinning down.
  */
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 23)
+@Config(manifest = Config.NONE, sdk = 24)
 @ConscryptMode(ConscryptMode.Mode.OFF)
 public class CatchUpTest {
 

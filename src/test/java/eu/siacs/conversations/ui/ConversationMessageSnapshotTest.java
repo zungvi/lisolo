@@ -25,7 +25,7 @@ import org.robolectric.annotation.ConscryptMode;
 
 /** Exercises the real fragment diff snapshot without requiring an XMPP connection or a view. */
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 23)
+@Config(manifest = Config.NONE, sdk = 24)
 @ConscryptMode(ConscryptMode.Mode.OFF)
 public class ConversationMessageSnapshotTest {
 

@@ -14,7 +14,7 @@ import org.robolectric.annotation.ConscryptMode;
 
 /** Parsing of the OpenAI-dialect responses the Zungvi AI endpoint returns. */
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 23)
+@Config(manifest = Config.NONE, sdk = 24)
 @ConscryptMode(ConscryptMode.Mode.OFF)
 public class ZungviAiTest {
 

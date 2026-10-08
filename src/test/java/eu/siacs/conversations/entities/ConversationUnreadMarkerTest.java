@@ -16,7 +16,7 @@ import org.robolectric.annotation.ConscryptMode;
  * android.jar throws on those methods, so this runs under Robolectric for a real implementation.
  */
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 23)
+@Config(manifest = Config.NONE, sdk = 24)
 @ConscryptMode(ConscryptMode.Mode.OFF)
 public class ConversationUnreadMarkerTest {
 

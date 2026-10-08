@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--    Only the self-distributed build may offer to install an APK it downloaded. Play
+            forbids this for store builds, so it must not reach src/main. Nothing calls it yet;
+            it is declared here so the capability belongs to this flavour and not to the
+            playstore one. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.READ_PROFILE" />
 

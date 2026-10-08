@@ -46,3 +46,8 @@ proguard/
 
 import-summary.txt
 .navigation/
+
+# Signing keys - never commit
+*.jks
+*.keystore
+*.p12
