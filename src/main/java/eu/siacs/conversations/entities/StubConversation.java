@@ -69,4 +69,13 @@ public class StubConversation implements Conversational {
     public String getUuid() {
         return uuid;
     }
+
+    /**
+     * A stub carries no attributes, so it answers with the same default as a {@link Conversation}
+     * that has never had the setting touched.
+     */
+    @Override
+    public boolean isMediaGalleryVisible() {
+        return true;
+    }
 }

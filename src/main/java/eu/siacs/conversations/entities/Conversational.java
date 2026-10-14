@@ -45,4 +45,12 @@ public interface Conversational {
     int getMode();
 
     String getUuid();
+
+    /**
+     * Whether media received in this conversation is indexed by the system media scanner, and so
+     * shows up in the device gallery. Callers reach a conversation through this interface (via
+     * {@link Message#getConversation()}), so the setting has to be answerable here and not only
+     * on {@link Conversation}.
+     */
+    boolean isMediaGalleryVisible();
 }

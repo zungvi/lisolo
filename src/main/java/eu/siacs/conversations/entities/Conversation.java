@@ -937,6 +937,7 @@ public class Conversation extends AbstractEntity
                         Config.ALWAYS_NOTIFY_BY_DEFAULT || isPrivateAndNonAnonymous());
     }
 
+    @Override
     public boolean isMediaGalleryVisible() {
         return getBooleanAttribute(ATTRIBUTE_MEDIA_GALLERY_VISIBLE, true);
     }
