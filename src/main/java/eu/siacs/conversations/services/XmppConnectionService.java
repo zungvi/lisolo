@@ -1381,24 +1381,17 @@ public class XmppConnectionService extends Service {
     private void startForegroundOrCatch(
             final int id, final Notification notification, final boolean requireMicrophone) {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                final int foregroundServiceType;
-                if (requireMicrophone
-                        && ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                                == PackageManager.PERMISSION_GRANTED) {
-                    foregroundServiceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
-                    Log.d(Config.LOGTAG, "defaulting to microphone foreground service type");
-                } else if (getSystemService(PowerManager.class)
-                        .isIgnoringBatteryOptimizations(getPackageName())) {
-                    foregroundServiceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED;
-                } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                        == PackageManager.PERMISSION_GRANTED) {
-                    foregroundServiceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
-                } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-                        == PackageManager.PERMISSION_GRANTED) {
-                    foregroundServiceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA;
-                } else {
-                    foregroundServiceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
+            if (ForegroundServiceType.isSupported()) {
+                final boolean microphonePermission =
+                        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                                == PackageManager.PERMISSION_GRANTED;
+                final int foregroundServiceType =
+                        ForegroundServiceType.select(
+                                requireMicrophone,
+                                microphonePermission,
+                                getSystemService(PowerManager.class)
+                                        .isIgnoringBatteryOptimizations(getPackageName()));
+                if (foregroundServiceType == ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) {
                     Log.w(Config.LOGTAG, "falling back to special use foreground service type");
                 }
                 startForeground(id, notification, foregroundServiceType);
