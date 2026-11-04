@@ -300,6 +300,121 @@
 
                         </TableLayout>
 
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
+                            android:text="@string/server_capability_title"
+                            android:textAppearance="?textAppearanceTitleSmall" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:layout_marginBottom="8dp"
+                            android:text="@string/server_capability_intro"
+                            android:textAppearance="?textAppearanceBodySmall"
+                            android:textColor="?colorOnSurfaceVariant" />
+
+                        <TableLayout
+                            android:id="@+id/server_capability_summary"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:shrinkColumns="0"
+                            android:stretchColumns="1">
+
+                            <TableRow
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:paddingTop="3dp"
+                                android:paddingBottom="3dp">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/server_capability_omemo"
+                                    android:textAppearance="?textAppearanceBodyMedium" />
+
+                                <TextView
+                                    android:id="@+id/server_capability_omemo_status"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_gravity="end"
+                                    android:textAppearance="?textAppearanceBodyMedium" />
+                            </TableRow>
+
+                            <TableRow
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:paddingTop="3dp"
+                                android:paddingBottom="3dp">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/server_capability_history"
+                                    android:textAppearance="?textAppearanceBodyMedium" />
+
+                                <TextView
+                                    android:id="@+id/server_capability_history_status"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_gravity="end"
+                                    android:textAppearance="?textAppearanceBodyMedium" />
+                            </TableRow>
+
+                            <TableRow
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:paddingTop="3dp"
+                                android:paddingBottom="3dp">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/server_capability_file_uploads"
+                                    android:textAppearance="?textAppearanceBodyMedium" />
+
+                                <TextView
+                                    android:id="@+id/server_capability_file_uploads_status"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_gravity="end"
+                                    android:textAppearance="?textAppearanceBodyMedium" />
+                            </TableRow>
+
+                            <TableRow
+                                android:id="@+id/server_capability_push_row"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:paddingTop="3dp"
+                                android:paddingBottom="3dp">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/server_capability_push"
+                                    android:textAppearance="?textAppearanceBodyMedium" />
+
+                                <TextView
+                                    android:id="@+id/server_capability_push_status"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_gravity="end"
+                                    android:textAppearance="?textAppearanceBodyMedium" />
+                            </TableRow>
+
+                        </TableLayout>
+
+                        <TextView
+                            android:id="@+id/server_capability_calls_note"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="@string/server_capability_calls_note"
+                            android:textAppearance="?textAppearanceBodySmall"
+                            android:textColor="?colorOnSurfaceVariant" />
+
                         <TableLayout
                             android:id="@+id/server_info_login_mechanism"
                             android:layout_width="match_parent"

@@ -109,6 +109,7 @@ public class EditAccountActivity extends OmemoActivity
 
     public static final String EXTRA_OPENED_FROM_NOTIFICATION = "opened_from_notification";
     public static final String EXTRA_FORCE_REGISTER = "force_register";
+    public static final String EXTRA_PROVIDER_DOMAIN = "provider_domain";
 
     private static final int REQUEST_DATA_SAVER = 0xf244;
     private static final int REQUEST_CHANGE_STATUS = 0xee11;
@@ -119,6 +120,7 @@ public class EditAccountActivity extends OmemoActivity
     private boolean mInitMode = false;
     private Boolean mForceRegister = null;
     private boolean mUsernameMode = false;
+    @Nullable private String mProviderDomain;
     private boolean mShowOptions = false;
     private Account mAccount;
     private final OnClickListener mCancelButtonClickListener =
@@ -829,6 +831,8 @@ public class EditAccountActivity extends OmemoActivity
         super.onStart();
         final Intent intent = getIntent();
         if (intent != null) {
+            this.mProviderDomain = Strings.emptyToNull(intent.getStringExtra(EXTRA_PROVIDER_DOMAIN));
+            this.mUsernameMode = this.mProviderDomain != null;
             try {
                 this.jidToEdit = Jid.of(intent.getStringExtra("jid"));
             } catch (final IllegalArgumentException | NullPointerException ignored) {
@@ -996,6 +1000,9 @@ public class EditAccountActivity extends OmemoActivity
     }
 
     private String getUserModeDomain() {
+        if (this.mProviderDomain != null) {
+            return this.mProviderDomain;
+        }
         if (mAccount != null && mAccount.getJid().getDomain() != null) {
             return mAccount.getServer();
         } else {
@@ -1258,8 +1265,12 @@ public class EditAccountActivity extends OmemoActivity
             }
             if (connection.getManager(MessageArchiveManager.class).hasFeature()) {
                 this.binding.serverInfoMam.setText(R.string.server_info_available);
+                this.binding.serverCapabilityHistoryStatus.setText(
+                        R.string.server_capability_available);
             } else {
                 this.binding.serverInfoMam.setText(R.string.server_info_unavailable);
+                this.binding.serverCapabilityHistoryStatus.setText(
+                        R.string.server_capability_not_advertised);
             }
             if (features.csi()) {
                 this.binding.serverInfoCsi.setText(R.string.server_info_available);
@@ -1292,21 +1303,32 @@ public class EditAccountActivity extends OmemoActivity
                 this.binding.serverInfoSasl2.setText(R.string.server_info_unavailable);
             }
             this.binding.loginMechanism.setText(Strings.nullToEmpty(features.loginMechanism()));
-            if (connection.getManager(PepManager.class).isAvailable()) {
+            final var pepManager = connection.getManager(PepManager.class);
+            if (pepManager.isAvailable()) {
                 AxolotlService axolotlService = this.mAccount.getAxolotlService();
                 if (axolotlService != null && axolotlService.isPepBroken()) {
                     this.binding.serverInfoPep.setText(R.string.server_info_broken);
-                } else if (connection.getManager(PepManager.class).hasPublishOptions()) {
+                    this.binding.serverCapabilityOmemoStatus.setText(
+                            R.string.server_capability_needs_attention);
+                } else if (pepManager.hasPublishOptions()) {
                     this.binding.serverInfoPep.setText(R.string.server_info_available);
+                    this.binding.serverCapabilityOmemoStatus.setText(
+                            R.string.server_capability_available);
                 } else {
                     this.binding.serverInfoPep.setText(R.string.server_info_partial);
+                    this.binding.serverCapabilityOmemoStatus.setText(
+                            R.string.server_capability_limited);
                 }
             } else {
                 this.binding.serverInfoPep.setText(R.string.server_info_unavailable);
+                this.binding.serverCapabilityOmemoStatus.setText(
+                        R.string.server_capability_not_advertised);
             }
             final var httpUploadManager = connection.getManager(HttpUploadManager.class);
             final var uploadService = httpUploadManager.getService();
             if (uploadService != null) {
+                this.binding.serverCapabilityFileUploadsStatus.setText(
+                        R.string.server_capability_available);
                 final Long maxFileSize = uploadService.getMaxFileSize();
                 if (maxFileSize == null) {
                     this.binding.serverInfoHttpUpload.setText(R.string.server_info_available);
@@ -1316,18 +1338,26 @@ public class EditAccountActivity extends OmemoActivity
                 }
             } else {
                 this.binding.serverInfoHttpUpload.setText(R.string.server_info_unavailable);
+                this.binding.serverCapabilityFileUploadsStatus.setText(
+                        R.string.server_capability_not_advertised);
             }
 
             if (PushManagementService.isStub()) {
                 this.binding.pushRow.setVisibility(View.GONE);
+                this.binding.serverCapabilityPushRow.setVisibility(View.GONE);
             } else {
                 final var pushManagementService = new PushManagementService(this);
                 if (pushManagementService.available(mAccount)) {
                     this.binding.serverInfoPush.setText(R.string.server_info_available);
+                    this.binding.serverCapabilityPushStatus.setText(
+                            R.string.server_capability_available);
                 } else {
                     this.binding.serverInfoPush.setText(R.string.server_info_unavailable);
+                    this.binding.serverCapabilityPushStatus.setText(
+                            R.string.server_capability_unavailable_here);
                 }
                 this.binding.pushRow.setVisibility(View.VISIBLE);
+                this.binding.serverCapabilityPushRow.setVisibility(View.VISIBLE);
             }
 
             final long pgpKeyId = this.mAccount.getPgpId();

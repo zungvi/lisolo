@@ -47,8 +47,10 @@ in plaintext and is readable there
 **Accounts**
 
 - Any XMPP account, or in-band registration
+- Searchable recommendations from the XMPP Providers directory, plus custom-server signup; provider search stays on-device after the public list is downloaded
 - Zungvi sign-in, which exchanges Zungvi credentials for XMPP ones
 - Custom hostname and port
+- A plain-language server and app check for OMEMO key publishing, message history, file uploads, and background notifications in supported builds
 
 **Notifications**
 
