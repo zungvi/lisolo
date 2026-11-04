@@ -380,6 +380,12 @@ public class MultiUserChatManager extends AbstractManager {
             return Futures.immediateFailedFuture(
                     new IllegalStateException("Must be joined to the MUC before preparing MUJI"));
         }
+        if (!options.isPrivateAndNonAnonymous()) {
+            return Futures.immediateFailedFuture(
+                    new IllegalStateException(
+                            "MUJI requires a members-only, non-anonymous room because peer Jingle"
+                                    + " sessions use real JIDs"));
+        }
         final MucOptions.Self self = options.getSelf();
         if (self == null) {
             return Futures.immediateFailedFuture(
@@ -486,6 +492,22 @@ public class MultiUserChatManager extends AbstractManager {
             publishMujiPresence(conversation, sharedMedia.toMujiAnnouncement());
         }
         return compatibility;
+    }
+
+    /** Complete the MUJI preparation handshake, then publish only compatible local media. */
+    public ListenableFuture<MujiCodecCompatibility.Result> prepareAndPublishMujiMedia(
+            final Conversation conversation, final RtpContentMap proposedMedia) {
+        return Futures.transform(
+                prepareMuji(conversation),
+                ignored -> {
+                    final MujiCodecCompatibility.Result compatibility =
+                            publishMujiMediaIfCompatible(conversation, proposedMedia);
+                    if (!compatibility.compatible()) {
+                        publishMujiPresence(conversation, null);
+                    }
+                    return compatibility;
+                },
+                MoreExecutors.directExecutor());
     }
 
     private void removePendingMujiPreparation(
