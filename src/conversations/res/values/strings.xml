@@ -14,6 +14,44 @@
     <string name="easy_invite_share_text">Join %1$s and chat with me: %2$s</string>
     <string name="share_invite_with">Share invite with…</string>
 
+    <!-- XMPP provider picker -->
+    <string name="provider_picker_title">Choose an XMPP provider</string>
+    <string name="provider_picker_intro">Choose from the XMPP Providers directory or enter any XMPP server. Listings include signup, compliance scores, upload limits, and history retention. The directory downloads to this device; searches stay here. Choosing a provider connects to it or opens its signup website.</string>
+    <string name="provider_search_hint">Search providers</string>
+    <string name="provider_custom_domain_hint">Server domain (for example, example.org)</string>
+    <string name="provider_use_custom_domain">Use this server</string>
+    <string name="provider_create_zungvi_account">Or create a Lisolo account on zungvi.com</string>
+    <string name="provider_list_summary_in_band">Category %1$s · sign up in Lisolo</string>
+    <string name="provider_list_summary_website">Category %1$s · check signup options</string>
+    <string name="provider_list_content_description">%1$s. %2$s</string>
+    <string name="provider_directory_loading">Loading recommended providers…</string>
+    <string name="provider_directory_refreshing">Refreshing the provider list…</string>
+    <string name="provider_directory_unavailable">Could not load providers. Enter a server below or try again later.</string>
+    <string name="provider_directory_using_saved_list">Could not refresh; showing the saved provider list.</string>
+    <string name="provider_directory_count">%1$d recommended providers · search stays on this device</string>
+    <string name="provider_no_search_results">No providers match your search.</string>
+    <string name="provider_category_a">Category A · in-app signup supported</string>
+    <string name="provider_category_b">Category B · web signup supported</string>
+    <string name="provider_registration_in_app">Account registration is available in Lisolo.</string>
+    <string name="provider_registration_website">The directory lists a registration website.</string>
+    <string name="provider_registration_not_listed">The directory does not list a registration method.</string>
+    <string name="provider_free_of_charge">Listed as free of charge.</string>
+    <string name="provider_not_free_of_charge">Not listed as free of charge.</string>
+    <string name="provider_compliance_score">XMPP compliance test score: %1$d/100</string>
+    <string name="provider_max_file_size">Maximum file size: %1$s</string>
+    <string name="provider_history_unlimited">Message history retention: no time limit</string>
+    <string name="provider_history_less_than_day">Message history retention: less than one day</string>
+    <string name="provider_history_days">Message history retention: %1$d days</string>
+    <string name="provider_server_locations">Server locations: %1$s</string>
+    <string name="provider_capabilities_checked_after_sign_in">After sign-in, Lisolo checks support for OMEMO key publishing, history, and uploads. Background notifications are checked in supported builds. Calls also depend on the other person’s app and network.</string>
+    <string name="provider_create_in_app">Create account</string>
+    <string name="provider_open_registration">Open registration website</string>
+    <string name="provider_use_existing_account">I already have an account</string>
+    <string name="provider_open_website">Provider website</string>
+    <string name="provider_invalid_domain">Enter a valid XMPP server domain.</string>
+    <string name="provider_invalid_website">This provider listing contains an invalid website link.</string>
+    <string name="provider_no_browser">No browser is available to open this link.</string>
+
     <!-- Welcome screen -->
     <string name="xmpp_intro">Lisolo is an XMPP client. Sign in with an account from any XMPP provider, or create a new one.</string>
     <string name="sign_in_with_zungvi">Sign in with a Zungvi account</string>

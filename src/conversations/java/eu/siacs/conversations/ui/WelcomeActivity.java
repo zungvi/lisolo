@@ -121,7 +121,7 @@ public class WelcomeActivity extends XmppActivity
         setSupportActionBar(binding.toolbar);
         configureActionBar(getSupportActionBar(), false);
         binding.createAccount.setOnClickListener(
-                v -> startWithInviteUri(MagicCreateActivity.class));
+                v -> startWithInviteUri(PickServerActivity.class));
         binding.signInZungvi.setOnClickListener(
                 v -> startWithInviteUri(ZungviSignInActivity.class));
         binding.useExisting.setOnClickListener(v -> useExistingAccount());

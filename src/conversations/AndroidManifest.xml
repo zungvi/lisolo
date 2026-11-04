@@ -20,7 +20,6 @@
             android:name=".ui.PickServerActivity"
             android:enableOnBackInvokedCallback="false"
             android:label="@string/create_new_account"
-            android:enabled="false"
             android:launchMode="singleTask"
             tools:targetApi="33" />
         <activity
