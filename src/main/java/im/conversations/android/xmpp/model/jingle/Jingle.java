@@ -58,6 +58,14 @@ public class Jingle extends Extension {
         }
     }
 
+    public Muji getMuji() {
+        return getExtension(Muji.class);
+    }
+
+    public void setMujiRoom(final Jid room) {
+        setExtension(Muji.forRoom(room));
+    }
+
     // RECOMMENDED for session-initiate, NOT RECOMMENDED otherwise
     public void setInitiator(final Jid initiator) {
         Preconditions.checkArgument(initiator.isFullJid(), "initiator should be a full JID");

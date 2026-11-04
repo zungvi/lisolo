@@ -43,6 +43,7 @@ import im.conversations.android.xmpp.model.error.Condition;
 import im.conversations.android.xmpp.model.hints.NoCopy;
 import im.conversations.android.xmpp.model.hints.NoStore;
 import im.conversations.android.xmpp.model.jabber.Subject;
+import im.conversations.android.xmpp.model.jingle.Muji;
 import im.conversations.android.xmpp.model.muc.Affiliation;
 import im.conversations.android.xmpp.model.muc.History;
 import im.conversations.android.xmpp.model.muc.MultiUserChat;
@@ -419,6 +420,7 @@ public class MultiUserChatManager extends AbstractManager {
                 mucOptions.occupantId() && occupant != null ? occupant.getId() : null;
         final MucOptions.User user =
                 MultiUserChatManager.itemToUser(conversation, item, from, occupantId);
+        user.setMuji(presence.getExtension(Muji.class));
         if (codes.contains(MucUser.STATUS_CODE_SELF_PRESENCE)
                 || (codes.contains(MucUser.STATUS_CODE_ROOM_CREATED)
                         && jid.equals(item.getJid()))) {

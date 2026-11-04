@@ -27,6 +27,7 @@ import im.conversations.android.xmpp.model.Hash;
 import im.conversations.android.xmpp.model.data.Data;
 import im.conversations.android.xmpp.model.data.Field;
 import im.conversations.android.xmpp.model.disco.info.InfoQuery;
+import im.conversations.android.xmpp.model.jingle.Muji;
 import im.conversations.android.xmpp.model.muc.Affiliation;
 import im.conversations.android.xmpp.model.muc.Item;
 import im.conversations.android.xmpp.model.muc.Role;
@@ -818,6 +819,7 @@ public class MucOptions {
         private Long pgpKeyId;
         private String avatar;
         private Class<? extends ChatStateNotification> chatState = null;
+        @Nullable private Muji muji;
 
         public User(
                 final MucOptions options,
@@ -909,6 +911,23 @@ public class MucOptions {
 
         public MucOptions getMucOptions() {
             return this.options;
+        }
+
+        public void setMuji(@Nullable final Muji muji) {
+            this.muji = muji;
+        }
+
+        @Nullable
+        public Muji getMuji() {
+            return this.muji;
+        }
+
+        public boolean isInMujiCall() {
+            return this.muji != null;
+        }
+
+        public boolean isPreparingMujiCall() {
+            return this.muji != null && this.muji.isPreparing();
         }
 
         public Conversation getConversation() {
@@ -1031,7 +1050,7 @@ public class MucOptions {
                     this.realJid == null
                             ? this.options.getAccount().getJid().asBareJid()
                             : this.realJid;
-            return new Self(
+            final var connectedSelf = new Self(
                     this.options,
                     this.fullJid,
                     address,
@@ -1039,6 +1058,8 @@ public class MucOptions {
                     this.role,
                     this.affiliation,
                     true);
+            connectedSelf.setMuji(this.muji);
+            return connectedSelf;
         }
 
         @Override
