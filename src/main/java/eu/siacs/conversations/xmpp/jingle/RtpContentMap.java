@@ -20,9 +20,12 @@ import eu.siacs.conversations.xmpp.jingle.stanzas.Group;
 import eu.siacs.conversations.xmpp.jingle.stanzas.IceUdpTransportInfo;
 import eu.siacs.conversations.xmpp.jingle.stanzas.OmemoVerifiedIceUdpTransportInfo;
 import eu.siacs.conversations.xmpp.jingle.stanzas.RtpDescription;
+import eu.siacs.conversations.xml.Namespace;
 import im.conversations.android.xmpp.model.jingle.Jingle;
 import im.conversations.android.xmpp.model.jingle.Muji;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -105,6 +108,61 @@ public class RtpContentMap extends AbstractContentMap<RtpDescription, IceUdpTran
                     Content.Creator.INITIATOR.toString(), entry.getKey(), description);
         }
         return muji;
+    }
+
+    /** Return a copy containing only the agreed payload IDs for each announced content. */
+    public RtpContentMap retainPayloadTypes(
+            final Map<String, Set<Integer>> payloadTypesByContent) {
+        final Map<String, DescriptionTransport<RtpDescription, IceUdpTransportInfo>>
+                retainedContents = new LinkedHashMap<>();
+        for (final Map.Entry<String, DescriptionTransport<RtpDescription, IceUdpTransportInfo>>
+                entry : contents.entrySet()) {
+            final String name = entry.getKey();
+            final DescriptionTransport<RtpDescription, IceUdpTransportInfo> descriptionTransport =
+                    entry.getValue();
+            final Set<Integer> payloadTypes = payloadTypesByContent.get(name);
+            Preconditions.checkArgument(
+                    payloadTypes != null && !payloadTypes.isEmpty(),
+                    "No shared payload types for content " + name);
+            final RtpDescription originalDescription =
+                    Preconditions.checkNotNull(
+                            descriptionTransport.description,
+                            "RTP content map is lacking a description for " + name);
+            final RtpDescription filteredDescription =
+                    RtpDescription.upgrade(originalDescription);
+            filteredDescription.setChildren(new ArrayList<>(originalDescription.getChildren()));
+
+            final Set<Integer> presentPayloadTypes = new HashSet<>();
+            for (final RtpDescription.PayloadType payloadType :
+                    filteredDescription.getPayloadTypes()) {
+                if (payloadTypes.contains(payloadType.getIntId())) {
+                    presentPayloadTypes.add(payloadType.getIntId());
+                }
+            }
+            Preconditions.checkArgument(
+                    presentPayloadTypes.containsAll(payloadTypes),
+                    "Shared payload types are missing from local content " + name);
+            filteredDescription
+                    .getChildren()
+                    .removeIf(
+                            child ->
+                                    "payload-type".equals(child.getName())
+                                            && Namespace.JINGLE_APPS_RTP.equals(
+                                                    child.getNamespace())
+                                            && !payloadTypes.contains(
+                                                    SessionDescription.ignorantIntParser(
+                                                            child.getAttribute("id"))));
+            retainedContents.put(
+                    name,
+                    new DescriptionTransport<>(
+                            descriptionTransport.senders,
+                            filteredDescription,
+                            descriptionTransport.transport));
+        }
+        if (this instanceof OmemoVerifiedRtpContentMap) {
+            return new OmemoVerifiedRtpContentMap(group, retainedContents);
+        }
+        return new RtpContentMap(group, retainedContents);
     }
 
     void requireDTLSFingerprint() {

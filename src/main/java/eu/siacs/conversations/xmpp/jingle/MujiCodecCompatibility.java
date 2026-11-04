@@ -205,5 +205,13 @@ public final class MujiCodecCompatibility {
             sharedPayloadTypes = ImmutableMap.copyOf(sharedPayloadTypes);
             issues = ImmutableList.copyOf(issues);
         }
+
+        public RtpContentMap retainSharedPayloadTypes(final RtpContentMap contentMap) {
+            if (!compatible) {
+                throw new IllegalStateException(
+                        "Cannot publish MUJI media with incompatible payload mappings");
+            }
+            return contentMap.retainPayloadTypes(sharedPayloadTypes);
+        }
     }
 }

@@ -475,6 +475,19 @@ public class MultiUserChatManager extends AbstractManager {
         return inspectMujiCodecCompatibility(conversation, proposedMedia.toMujiAnnouncement());
     }
 
+    /** Publish the local media after reducing it to payload types shared with current MUJI peers. */
+    public MujiCodecCompatibility.Result publishMujiMediaIfCompatible(
+            final Conversation conversation, final RtpContentMap proposedMedia) {
+        final MujiCodecCompatibility.Result compatibility =
+                inspectMujiCodecCompatibility(conversation, proposedMedia);
+        if (compatibility.compatible()) {
+            final RtpContentMap sharedMedia =
+                    compatibility.retainSharedPayloadTypes(proposedMedia);
+            publishMujiPresence(conversation, sharedMedia.toMujiAnnouncement());
+        }
+        return compatibility;
+    }
+
     private void removePendingMujiPreparation(
             final Jid room, final PendingMujiPreparation pending) {
         final ScheduledFuture<?> timeout;
