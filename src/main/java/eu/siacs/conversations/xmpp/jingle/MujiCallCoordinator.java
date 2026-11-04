@@ -41,6 +41,8 @@ public final class MujiCallCoordinator implements CallIntegration.Callback, Ongo
     private boolean callIntegrationActive;
     private long connectedAt;
     @Nullable private Set<Media> sharedMedia;
+    @Nullable private MujiCodecCompatibility.Result codecCompatibility;
+    @Nullable private RtpContentMap agreedContentMap;
     @Nullable private Listener listener;
     @Nullable private Consumer<MujiCallCoordinator> onFinished;
 
@@ -93,6 +95,7 @@ public final class MujiCallCoordinator implements CallIntegration.Callback, Ongo
         Preconditions.checkArgument(
                 isActiveMujiParticipant(participant),
                 "Peer has not published ready MUJI media in this room");
+        requireAgreedMedia(media);
 
         final Map<Jid, RtpEndUserState> stateSnapshot;
         final boolean startAudioRouting;
@@ -165,6 +168,71 @@ public final class MujiCallCoordinator implements CallIntegration.Callback, Ongo
     @Override
     public synchronized Set<Media> getMedia() {
         return sharedMedia == null ? ImmutableSet.of() : sharedMedia;
+    }
+
+    public synchronized void setCodecCompatibility(
+            final MujiCodecCompatibility.Result codecCompatibility,
+            final RtpContentMap proposedMedia) {
+        Preconditions.checkArgument(
+                codecCompatibility.compatible(),
+                "Cannot configure a room call with incompatible media");
+        Preconditions.checkState(!ending && peerSessions.isEmpty());
+        Preconditions.checkState(
+                this.codecCompatibility == null,
+                "MUJI codec compatibility has already been configured");
+        this.agreedContentMap = codecCompatibility.retainSharedPayloadTypes(proposedMedia);
+        this.codecCompatibility = codecCompatibility;
+        this.sharedMedia = ImmutableSet.copyOf(agreedContentMap.getMedia());
+    }
+
+    public synchronized boolean hasCodecCompatibility() {
+        return codecCompatibility != null && agreedContentMap != null;
+    }
+
+    public synchronized void requireAgreedMedia(final Set<Media> media) {
+        Preconditions.checkState(hasCodecCompatibility(), "MUJI codec map is not configured");
+        Preconditions.checkArgument(
+                agreedContentMap.getMedia().equals(media),
+                "Requested MUJI media does not match the room-wide agreement");
+    }
+
+    public synchronized RtpContentMap retainSharedPayloadTypes(final RtpContentMap contentMap) {
+        Preconditions.checkState(hasCodecCompatibility(), "MUJI codec map is not configured");
+        Preconditions.checkArgument(
+                ImmutableSet.copyOf(agreedContentMap.getNames())
+                        .equals(ImmutableSet.copyOf(contentMap.getNames())),
+                "Local Jingle session is using different media contents than MUJI presence");
+        return codecCompatibility.retainSharedPayloadTypes(contentMap);
+    }
+
+    public synchronized void validatePeerContentMap(final RtpContentMap peerContentMap) {
+        Preconditions.checkState(hasCodecCompatibility(), "MUJI codec map is not configured");
+        Preconditions.checkArgument(
+                ImmutableSet.copyOf(agreedContentMap.getNames())
+                        .equals(ImmutableSet.copyOf(peerContentMap.getNames())),
+                "MUJI peer is using different media contents");
+        final MujiCodecCompatibility.Result peerAnnouncement =
+                MujiCodecCompatibility.inspect(
+                        List.of(peerContentMap.toMujiAnnouncement()));
+        final Map<String, Set<Integer>> expectedPayloadTypes =
+                codecCompatibility.sharedPayloadTypes();
+        for (final Map.Entry<String, Set<Integer>> entry :
+                peerAnnouncement.sharedPayloadTypes().entrySet()) {
+            Preconditions.checkArgument(
+                    expectedPayloadTypes.containsKey(entry.getKey())
+                            && expectedPayloadTypes.get(entry.getKey()).containsAll(entry.getValue()),
+                    "MUJI peer advertised payload types outside the room-wide mapping");
+        }
+        final MujiCodecCompatibility.Result peerCompatibility =
+                MujiCodecCompatibility.inspect(
+                        List.of(
+                                agreedContentMap.toMujiAnnouncement(),
+                                peerContentMap.toMujiAnnouncement()));
+        Preconditions.checkArgument(
+                peerCompatibility.compatible()
+                        && peerCompatibility.sharedPayloadTypes().keySet()
+                                .equals(expectedPayloadTypes.keySet()),
+                "MUJI peer is not using the room-wide payload mapping");
     }
 
     public Jid getRoom() {

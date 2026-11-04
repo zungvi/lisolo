@@ -830,6 +830,7 @@ public class JingleManager extends AbstractManager {
                     "MUJI coordinator is not registered with this Jingle manager");
         }
         Preconditions.checkArgument(!media.isEmpty(), "MUJI media cannot be empty");
+        coordinator.requireAgreedMedia(media);
         Preconditions.checkState(
                 !hasCallOutsideCoordinator(coordinator.getCallIntegration()),
                 "There is already a call using a different CallIntegration");

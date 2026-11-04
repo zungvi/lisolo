@@ -113,7 +113,6 @@ public final class MujiCodecCompatibility {
             contentNames.addAll(contents.keySet());
         }
         final Map<String, Set<Integer>> sharedPayloadTypes = new LinkedHashMap<>();
-        boolean hasSharedContent = false;
         for (final String contentName : contentNames) {
             final List<Map<Integer, Codec>> mapsForContent = new ArrayList<>();
             for (final Map<String, Map<Integer, Codec>> contents : participantCodecs) {
@@ -122,9 +121,10 @@ public final class MujiCodecCompatibility {
                     mapsForContent.add(codecs);
                 }
             }
-            if (mapsForContent.size() < 2) {
-                final Map<Integer, Codec> onlyMap = mapsForContent.get(0);
-                sharedPayloadTypes.put(contentName, ImmutableSet.copyOf(onlyMap.keySet()));
+            // A content can be omitted from one or more participant announcements. It is not
+            // part of the room-wide profile in that case, even if the local participant supports
+            // it. Other common contents (for example audio without video) can still be used.
+            if (mapsForContent.size() != participantCodecs.size()) {
                 continue;
             }
 
@@ -144,14 +144,12 @@ public final class MujiCodecCompatibility {
                 commonIds.retainAll(codecs.keySet());
             }
             if (commonIds.isEmpty()) {
-                issues.add("Participants have no shared payload type for " + contentName);
+                continue;
             } else {
-                hasSharedContent = true;
+                sharedPayloadTypes.put(contentName, ImmutableSet.copyOf(commonIds));
             }
-            sharedPayloadTypes.put(contentName, ImmutableSet.copyOf(commonIds));
         }
-        if (sharedPayloadTypes.isEmpty()
-                || (participantCodecs.size() > 1 && !hasSharedContent)) {
+        if (sharedPayloadTypes.isEmpty()) {
             issues.add("Participants have no shared media content");
         }
         return new Result(issues.isEmpty(), sharedPayloadTypes, issues);

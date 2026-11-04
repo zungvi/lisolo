@@ -26,7 +26,7 @@
 - [x] Send MUJI preparing presence and wait for the reflected self presence and other in-room participants to finish preparing, with timeout and MUC-loss failure handling.
 - [x] Parse and build typed MUJI RTP content descriptions; convert existing RTP content maps into MUJI presence announcements and inspect active participants' advertised maps for payload ID, codec, clock-rate, channel, and parameter consistency.
 - [x] Provide one room API that completes preparation, filters local media to shared payload IDs, and publishes final MUJI media only when compatible.
-- [ ] Use the agreed payload map in the room call coordinator and enforce it in each peer Jingle/WebRTC session.
+- [x] Use the agreed payload map in the room call coordinator and enforce it in each peer Jingle/WebRTC session.
 - [ ] Bound the first MUJI release to small rooms and show a clear limit before call start; mesh call load grows with every participant pair.
 - [ ] Keep server-hosted SFU calls as a separate integration: Movim Galener is an XEP-0114 component that requires a deployed Galener/Galène service, not an XEP-0272-only server setting.
 - [ ] Implement group voice and video calls with clear capability checks and graceful fallback when a room or participant cannot use them.

@@ -30,6 +30,7 @@ import eu.siacs.conversations.utils.XmppUri;
 import eu.siacs.conversations.xml.Namespace;
 import eu.siacs.conversations.xmpp.Jid;
 import eu.siacs.conversations.xmpp.XmppConnection;
+import eu.siacs.conversations.xmpp.jingle.MujiCallCoordinator;
 import eu.siacs.conversations.xmpp.jingle.MujiCodecCompatibility;
 import eu.siacs.conversations.xmpp.jingle.RtpContentMap;
 import im.conversations.android.model.ImmutableBookmark;
@@ -504,6 +505,28 @@ public class MultiUserChatManager extends AbstractManager {
                             publishMujiMediaIfCompatible(conversation, proposedMedia);
                     if (!compatibility.compatible()) {
                         publishMujiPresence(conversation, null);
+                    }
+                    return compatibility;
+                },
+                MoreExecutors.directExecutor());
+    }
+
+    /** Complete preparation and install the negotiated mapping on the room call coordinator. */
+    public ListenableFuture<MujiCodecCompatibility.Result> prepareAndPublishMujiMedia(
+            final Conversation conversation,
+            final MujiCallCoordinator coordinator,
+            final RtpContentMap proposedMedia) {
+        Preconditions.checkArgument(
+                conversation.getAccount().getUuid().equals(coordinator.getAccountUuid()),
+                "MUJI coordinator belongs to a different account");
+        Preconditions.checkArgument(
+                conversation.getAddress().asBareJid().equals(coordinator.getRoom()),
+                "MUJI coordinator belongs to a different room");
+        return Futures.transform(
+                prepareAndPublishMujiMedia(conversation, proposedMedia),
+                compatibility -> {
+                    if (compatibility.compatible()) {
+                        coordinator.setCodecCompatibility(compatibility, proposedMedia);
                     }
                     return compatibility;
                 },

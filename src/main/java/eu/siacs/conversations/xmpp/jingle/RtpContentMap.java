@@ -121,9 +121,9 @@ public class RtpContentMap extends AbstractContentMap<RtpDescription, IceUdpTran
             final DescriptionTransport<RtpDescription, IceUdpTransportInfo> descriptionTransport =
                     entry.getValue();
             final Set<Integer> payloadTypes = payloadTypesByContent.get(name);
-            Preconditions.checkArgument(
-                    payloadTypes != null && !payloadTypes.isEmpty(),
-                    "No shared payload types for content " + name);
+            if (payloadTypes == null || payloadTypes.isEmpty()) {
+                continue;
+            }
             final RtpDescription originalDescription =
                     Preconditions.checkNotNull(
                             descriptionTransport.description,
@@ -132,16 +132,16 @@ public class RtpContentMap extends AbstractContentMap<RtpDescription, IceUdpTran
                     RtpDescription.upgrade(originalDescription);
             filteredDescription.setChildren(new ArrayList<>(originalDescription.getChildren()));
 
-            final Set<Integer> presentPayloadTypes = new HashSet<>();
+            final Set<Integer> retainedPayloadTypes = new HashSet<>();
             for (final RtpDescription.PayloadType payloadType :
                     filteredDescription.getPayloadTypes()) {
                 if (payloadTypes.contains(payloadType.getIntId())) {
-                    presentPayloadTypes.add(payloadType.getIntId());
+                    retainedPayloadTypes.add(payloadType.getIntId());
                 }
             }
             Preconditions.checkArgument(
-                    presentPayloadTypes.containsAll(payloadTypes),
-                    "Shared payload types are missing from local content " + name);
+                    !retainedPayloadTypes.isEmpty(),
+                    "No agreed payload types are present in local content " + name);
             filteredDescription
                     .getChildren()
                     .removeIf(
@@ -149,7 +149,7 @@ public class RtpContentMap extends AbstractContentMap<RtpDescription, IceUdpTran
                                     "payload-type".equals(child.getName())
                                             && Namespace.JINGLE_APPS_RTP.equals(
                                                     child.getNamespace())
-                                            && !payloadTypes.contains(
+                                            && !retainedPayloadTypes.contains(
                                                     SessionDescription.ignorantIntParser(
                                                             child.getAttribute("id"))));
             retainedContents.put(
@@ -159,10 +159,27 @@ public class RtpContentMap extends AbstractContentMap<RtpDescription, IceUdpTran
                             filteredDescription,
                             descriptionTransport.transport));
         }
-        if (this instanceof OmemoVerifiedRtpContentMap) {
-            return new OmemoVerifiedRtpContentMap(group, retainedContents);
+        Preconditions.checkArgument(
+                !retainedContents.isEmpty(), "No shared content in negotiated RTP content map");
+        final Group retainedGroup;
+        if (group == null) {
+            retainedGroup = null;
+        } else {
+            final List<String> identificationTags = new ArrayList<>();
+            for (final String tag : group.getIdentificationTags()) {
+                if (retainedContents.containsKey(tag)) {
+                    identificationTags.add(tag);
+                }
+            }
+            retainedGroup =
+                    identificationTags.size() > 1
+                            ? new Group(group.getSemantics(), identificationTags)
+                            : null;
         }
-        return new RtpContentMap(group, retainedContents);
+        if (this instanceof OmemoVerifiedRtpContentMap) {
+            return new OmemoVerifiedRtpContentMap(retainedGroup, retainedContents);
+        }
+        return new RtpContentMap(retainedGroup, retainedContents);
     }
 
     void requireDTLSFingerprint() {

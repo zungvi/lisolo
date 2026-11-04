@@ -1197,6 +1197,13 @@ public class JingleRtpConnection extends AbstractJingleConnection
             sendSessionTerminate(Reason.of(e), e.getMessage());
             return;
         }
+        try {
+            validateMujiPayloadMapping(contentMap);
+        } catch (final RuntimeException e) {
+            respondOk(jinglePacket);
+            sendSessionTerminate(new Reason.SecurityError(), e.getMessage());
+            return;
+        }
         Log.d(
                 Config.LOGTAG,
                 "processing session-init with " + contentMap.contents.size() + " contents");
@@ -1288,6 +1295,14 @@ public class JingleRtpConnection extends AbstractJingleConnection
                     e);
             webRTCWrapper.close();
             sendSessionTerminate(Reason.of(e), e.getMessage());
+            return;
+        }
+        try {
+            validateMujiPayloadMapping(contentMap);
+        } catch (final RuntimeException e) {
+            respondOk(jinglePacket);
+            webRTCWrapper.close();
+            sendSessionTerminate(new Reason.SecurityError(), e.getMessage());
             return;
         }
         final Set<Media> initiatorMedia = this.initiatorRtpContentMap.getMedia();
@@ -1446,7 +1461,14 @@ public class JingleRtpConnection extends AbstractJingleConnection
             final boolean includeCandidates) {
         final SessionDescription sessionDescription =
                 SessionDescription.parse(webRTCSessionDescription.description);
-        final RtpContentMap respondingRtpContentMap = RtpContentMap.of(sessionDescription, false);
+        final RtpContentMap respondingRtpContentMap;
+        try {
+            respondingRtpContentMap =
+                    retainMujiPayloadTypes(RtpContentMap.of(sessionDescription, false));
+        } catch (final RuntimeException e) {
+            failureToAcceptSession(e);
+            return;
+        }
         final ImmutableMultimap<String, IceUdpTransportInfo.Candidate> candidates;
         if (includeCandidates) {
             candidates = parseCandidates(sessionDescription);
@@ -1492,9 +1514,16 @@ public class JingleRtpConnection extends AbstractJingleConnection
                             + " to do.");
             return;
         }
+        final RtpContentMap agreedRtpContentMap;
+        try {
+            agreedRtpContentMap = retainMujiPayloadTypes(rtpContentMap);
+        } catch (final RuntimeException e) {
+            failureToAcceptSession(e);
+            return;
+        }
         transitionOrThrow(State.SESSION_ACCEPTED);
         final Iq sessionAccept =
-                rtpContentMap.toJinglePacket(Jingle.Action.SESSION_ACCEPT, id.sessionId);
+                agreedRtpContentMap.toJinglePacket(Jingle.Action.SESSION_ACCEPT, id.sessionId);
         send(sessionAccept);
     }
 
@@ -1935,7 +1964,13 @@ public class JingleRtpConnection extends AbstractJingleConnection
             final State targetState) {
         final SessionDescription sessionDescription =
                 SessionDescription.parse(webRTCSessionDescription.description);
-        final RtpContentMap rtpContentMap = RtpContentMap.of(sessionDescription, true);
+        final RtpContentMap rtpContentMap;
+        try {
+            rtpContentMap = retainMujiPayloadTypes(RtpContentMap.of(sessionDescription, true));
+        } catch (final RuntimeException e) {
+            failureToInitiateSession(e, targetState);
+            return;
+        }
         final ImmutableMultimap<String, IceUdpTransportInfo.Candidate> candidates;
         if (includeCandidates) {
             candidates = parseCandidates(sessionDescription);
@@ -3032,6 +3067,18 @@ public class JingleRtpConnection extends AbstractJingleConnection
         Preconditions.checkState(
                 this.mujiCallCoordinator == null, "MUJI coordinator is already assigned");
         this.mujiCallCoordinator = Preconditions.checkNotNull(mujiCallCoordinator);
+    }
+
+    private RtpContentMap retainMujiPayloadTypes(final RtpContentMap contentMap) {
+        final MujiCallCoordinator coordinator = this.mujiCallCoordinator;
+        return coordinator == null ? contentMap : coordinator.retainSharedPayloadTypes(contentMap);
+    }
+
+    private void validateMujiPayloadMapping(final RtpContentMap contentMap) {
+        final MujiCallCoordinator coordinator = this.mujiCallCoordinator;
+        if (coordinator != null) {
+            coordinator.validatePeerContentMap(contentMap);
+        }
     }
 
     public void fireStateUpdate() {
