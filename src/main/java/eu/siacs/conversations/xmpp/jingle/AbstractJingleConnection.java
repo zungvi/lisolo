@@ -61,6 +61,7 @@ public abstract class AbstractJingleConnection {
                 ImmutableList.of(
                         State.PROPOSED,
                         State.SESSION_INITIALIZED,
+                        State.TERMINATED_CANCEL_OR_TIMEOUT,
                         State.TERMINATED_APPLICATION_FAILURE,
                         State.TERMINATED_SECURITY_ERROR));
         transitionBuilder.put(

@@ -89,6 +89,7 @@ public class JingleRtpConnection extends AbstractJingleConnection
 
     private final WebRTCWrapper webRTCWrapper = new WebRTCWrapper(this);
     @Nullable private WebRTCSharedResources sharedWebRTCResources;
+    @Nullable private MujiCallCoordinator mujiCallCoordinator;
     private final Queue<
                     Map.Entry<String, DescriptionTransport<RtpDescription, IceUdpTransportInfo>>>
             pendingIceCandidates = new LinkedList<>();
@@ -2298,6 +2299,13 @@ public class JingleRtpConnection extends AbstractJingleConnection
                             + " nothing to do");
             return;
         }
+        if (this.state == State.NULL) {
+            this.webRTCWrapper.close();
+            transitionOrThrow(State.TERMINATED_CANCEL_OR_TIMEOUT);
+            updateEndUserState();
+            this.finish();
+            return;
+        }
         if (isInState(State.PROPOSED) && isResponder()) {
             rejectCallFromProposed();
             return;
@@ -2833,6 +2841,10 @@ public class JingleRtpConnection extends AbstractJingleConnection
         this.updateCallIntegrationState();
         xmppConnectionService.notifyJingleRtpConnectionUpdate(
                 id.account, id.with, id.sessionId, endUserState);
+        final MujiCallCoordinator coordinator = this.mujiCallCoordinator;
+        if (coordinator != null) {
+            coordinator.onPeerStateChanged(this, endUserState);
+        }
     }
 
     private void updateOngoingCallNotification() {
@@ -2897,6 +2909,10 @@ public class JingleRtpConnection extends AbstractJingleConnection
                     .getManager(JingleManager.class)
                     .setTerminalSessionState(id, getEndUserState(), getMedia());
             super.finish();
+            final MujiCallCoordinator coordinator = this.mujiCallCoordinator;
+            if (coordinator != null) {
+                coordinator.onPeerFinished(this);
+            }
         } else {
             throw new IllegalStateException(
                     String.format("Unable to call finish from %s", this.state));
@@ -2964,10 +2980,23 @@ public class JingleRtpConnection extends AbstractJingleConnection
         this.sharedWebRTCResources = Preconditions.checkNotNull(sharedWebRTCResources);
     }
 
+    void setMujiCallCoordinator(final MujiCallCoordinator mujiCallCoordinator) {
+        Preconditions.checkState(
+                this.state == State.NULL,
+                "MUJI coordinator must be assigned before a Jingle session starts");
+        Preconditions.checkState(
+                this.mujiCallCoordinator == null, "MUJI coordinator is already assigned");
+        this.mujiCallCoordinator = Preconditions.checkNotNull(mujiCallCoordinator);
+    }
+
     public void fireStateUpdate() {
         final RtpEndUserState endUserState = getEndUserState();
         xmppConnectionService.notifyJingleRtpConnectionUpdate(
                 id.account, id.with, id.sessionId, endUserState);
+        final MujiCallCoordinator coordinator = this.mujiCallCoordinator;
+        if (coordinator != null) {
+            coordinator.onPeerStateChanged(this, endUserState);
+        }
     }
 
     public boolean isSwitchToVideoAvailable() {

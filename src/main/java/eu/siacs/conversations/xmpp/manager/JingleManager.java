@@ -33,8 +33,10 @@ import eu.siacs.conversations.xmpp.jingle.AbstractJingleConnection;
 import eu.siacs.conversations.xmpp.jingle.JingleFileTransferConnection;
 import eu.siacs.conversations.xmpp.jingle.JingleRtpConnection;
 import eu.siacs.conversations.xmpp.jingle.Media;
+import eu.siacs.conversations.xmpp.jingle.MujiCallCoordinator;
 import eu.siacs.conversations.xmpp.jingle.OngoingRtpSession;
 import eu.siacs.conversations.xmpp.jingle.RtpEndUserState;
+import eu.siacs.conversations.xmpp.jingle.WebRTCWrapper;
 import eu.siacs.conversations.xmpp.jingle.stanzas.Content;
 import eu.siacs.conversations.xmpp.jingle.stanzas.GenericDescription;
 import eu.siacs.conversations.xmpp.jingle.stanzas.RtpDescription;
@@ -72,6 +74,7 @@ public class JingleManager extends AbstractManager {
             new HashMap<>();
     private final ConcurrentHashMap<AbstractJingleConnection.Id, AbstractJingleConnection>
             connections = new ConcurrentHashMap<>();
+    private final HashMap<Jid, MujiCallCoordinator> mujiCallCoordinators = new HashMap<>();
 
     private final Cache<PersistableSessionId, TerminatedRtpSession> terminatedSessions =
             CacheBuilder.newBuilder().expireAfterWrite(24, TimeUnit.HOURS).build();
@@ -736,6 +739,32 @@ public class JingleManager extends AbstractManager {
         this.connections.put(id, rtpConnection);
         rtpConnection.sendSessionInitiate();
         return rtpConnection;
+    }
+
+    public MujiCallCoordinator getOrCreateMujiCallCoordinator(final Conversation conversation)
+            throws WebRTCWrapper.InitializationException {
+        Preconditions.checkArgument(
+                getAccount().getUuid().equals(conversation.getAccount().getUuid()),
+                "Conversation belongs to a different account");
+        Preconditions.checkArgument(
+                conversation.getMode() == Conversation.MODE_MULTI,
+                "MUJI calls require a group conversation");
+        final Jid room = conversation.getAddress().asBareJid();
+        synchronized (mujiCallCoordinators) {
+            final MujiCallCoordinator existing = mujiCallCoordinators.get(room);
+            if (existing != null) {
+                return existing;
+            }
+            final MujiCallCoordinator coordinator = MujiCallCoordinator.create(service, conversation);
+            coordinator.setOnFinished(
+                    finished -> {
+                        synchronized (mujiCallCoordinators) {
+                            mujiCallCoordinators.remove(room, finished);
+                        }
+                    });
+            mujiCallCoordinators.put(room, coordinator);
+            return coordinator;
+        }
     }
 
     public @Nullable RtpSessionProposal proposeJingleRtpSession(
