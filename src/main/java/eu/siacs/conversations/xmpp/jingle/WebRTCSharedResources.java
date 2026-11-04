@@ -145,6 +145,16 @@ public final class WebRTCSharedResources {
         return audioTrack;
     }
 
+    synchronized boolean setMicrophoneEnabled(final boolean enabled) {
+        try {
+            audioTrack.setEnabled(enabled);
+            return true;
+        } catch (final IllegalStateException e) {
+            Log.d(Config.LOGTAG, "unable to toggle shared audio track", e);
+            return false;
+        }
+    }
+
     EglBase.Context getEglBaseContext() {
         return eglBase.getEglBaseContext();
     }

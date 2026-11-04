@@ -755,7 +755,8 @@ public class JingleManager extends AbstractManager {
             if (existing != null) {
                 return existing;
             }
-            final MujiCallCoordinator coordinator = MujiCallCoordinator.create(service, conversation);
+            final MujiCallCoordinator coordinator =
+                    MujiCallCoordinator.create(service, conversation);
             coordinator.setOnFinished(
                     finished -> {
                         synchronized (mujiCallCoordinators) {
@@ -764,6 +765,73 @@ public class JingleManager extends AbstractManager {
                     });
             mujiCallCoordinators.put(room, coordinator);
             return coordinator;
+        }
+    }
+
+    public JingleRtpConnection initializeMujiPeerSession(
+            final MujiCallCoordinator coordinator, final Jid with, final Set<Media> media) {
+        Preconditions.checkArgument(
+                getAccount().getUuid().equals(coordinator.getAccountUuid()),
+                "MUJI coordinator belongs to a different account");
+        Preconditions.checkArgument(
+                !coordinator.getRoom().equals(with.asBareJid()),
+                "A room cannot be initialized as its own MUJI peer");
+        synchronized (mujiCallCoordinators) {
+            Preconditions.checkArgument(
+                    mujiCallCoordinators.get(coordinator.getRoom()) == coordinator,
+                    "MUJI coordinator is not registered with this Jingle manager");
+        }
+        Preconditions.checkArgument(!media.isEmpty(), "MUJI media cannot be empty");
+        Preconditions.checkState(
+                !hasCallOutsideCoordinator(coordinator.getCallIntegration()),
+                "There is already a call using a different CallIntegration");
+
+        AbstractJingleConnection.Id id;
+        do {
+            id = AbstractJingleConnection.Id.of(getAccount(), with);
+        } while (this.connections.containsKey(id));
+        final JingleRtpConnection rtpConnection =
+                new JingleRtpConnection(
+                        service, id, getAccount().getJid(), coordinator.getCallIntegration(), true);
+        rtpConnection.setProposedMedia(ImmutableSet.copyOf(media));
+        Preconditions.checkState(
+                this.connections.putIfAbsent(id, rtpConnection) == null,
+                "Jingle session id collision");
+        try {
+            coordinator.addPeerSession(rtpConnection);
+        } catch (final RuntimeException e) {
+            this.connections.remove(id, rtpConnection);
+            throw e;
+        }
+        rtpConnection.sendSessionInitiate();
+        return rtpConnection;
+    }
+
+    private boolean hasCallOutsideCoordinator(final CallIntegration callIntegration) {
+        for (final Account account : this.service.getAccounts()) {
+            if (account.getUuid().equals(getAccount().getUuid())) {
+                continue;
+            }
+            final XmppConnection xmppConnection = account.getXmppConnection();
+            if (xmppConnection != null
+                    && xmppConnection.getManager(JingleManager.class).isBusy()) {
+                return true;
+            }
+        }
+        for (final AbstractJingleConnection connection : this.connections.values()) {
+            if (!(connection instanceof JingleRtpConnection rtpConnection)) {
+                continue;
+            }
+            if (connection.isTerminated() && rtpConnection.getCallIntegration().isDestroyed()) {
+                continue;
+            }
+            if (rtpConnection.getCallIntegration() != callIntegration) {
+                return true;
+            }
+        }
+        synchronized (this.rtpSessionProposals) {
+            return this.rtpSessionProposals.values().stream()
+                    .anyMatch(state -> state != DeviceDiscoveryState.FAILED);
         }
     }
 

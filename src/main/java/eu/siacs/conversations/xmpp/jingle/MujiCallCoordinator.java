@@ -1,11 +1,15 @@
 package eu.siacs.conversations.xmpp.jingle;
 
+import android.telecom.TelecomManager;
+import android.telecom.VideoProfile;
 import android.util.Log;
 import androidx.annotation.Nullable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.entities.Conversation;
+import eu.siacs.conversations.services.CallIntegration;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.xmpp.Jid;
 import eu.siacs.conversations.xmpp.manager.MultiUserChatManager;
@@ -14,28 +18,44 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /** Owns the peer sessions and shared media resources for one MUJI room call. */
-public final class MujiCallCoordinator {
+public final class MujiCallCoordinator implements CallIntegration.Callback {
 
+    private final XmppConnectionService service;
     private final Conversation conversation;
     private final Jid room;
     private final WebRTCSharedResources webRTCSharedResources;
+    private final CallIntegration callIntegration;
     private final LinkedHashMap<Jid, JingleRtpConnection> peerSessions = new LinkedHashMap<>();
     private final LinkedHashMap<Jid, RtpEndUserState> participantStates = new LinkedHashMap<>();
 
     private boolean ending;
     private boolean finished;
+    private boolean audioRoutingStarted;
+    private boolean hasConnectedPeer;
+    private boolean callIntegrationActive;
+    @Nullable private Set<Media> sharedMedia;
     @Nullable private Listener listener;
     @Nullable private Consumer<MujiCallCoordinator> onFinished;
 
     private MujiCallCoordinator(
+            final XmppConnectionService service,
             final Conversation conversation,
             final WebRTCSharedResources webRTCSharedResources) {
+        this.service = service;
         this.conversation = conversation;
         this.room = conversation.getAddress().asBareJid();
         this.webRTCSharedResources = webRTCSharedResources;
+        this.callIntegration = new CallIntegration(service.getApplicationContext());
+        this.callIntegration.setCallback(this);
+        this.callIntegration.setAddress(
+                CallIntegration.address(room), TelecomManager.PRESENTATION_ALLOWED);
+        this.callIntegration.setCallerDisplayName(
+                conversation.getName().toString(), TelecomManager.PRESENTATION_ALLOWED);
+        this.callIntegration.setInitialized();
     }
 
     public static MujiCallCoordinator create(
@@ -47,31 +67,58 @@ public final class MujiCallCoordinator {
         Preconditions.checkArgument(
                 conversation.getMucOptions().isPrivateAndNonAnonymous(),
                 "MUJI calls require a members-only, non-anonymous room");
-        return new MujiCallCoordinator(
-                conversation, WebRTCSharedResources.create(service));
+        final WebRTCSharedResources resources = WebRTCSharedResources.create(service);
+        try {
+            return new MujiCallCoordinator(service, conversation, resources);
+        } catch (final RuntimeException | Error e) {
+            resources.release();
+            throw e;
+        }
     }
 
     /** Register a peer before starting its Jingle session so it uses this call's shared tracks. */
     public void addPeerSession(final JingleRtpConnection connection) {
         Preconditions.checkNotNull(connection);
         final Jid participant = connection.getWith().asBareJid();
+        final Set<Media> media = ImmutableSet.copyOf(connection.getMedia());
         Preconditions.checkArgument(
                 connection.getId().account.getUuid().equals(conversation.getAccount().getUuid()),
                 "Peer session belongs to a different account");
         Preconditions.checkArgument(
                 !participant.equals(room), "A room cannot be registered as its own peer");
+        Preconditions.checkArgument(
+                isActiveMujiParticipant(participant),
+                "Peer has not published ready MUJI media in this room");
 
         final Map<Jid, RtpEndUserState> stateSnapshot;
+        final boolean startAudioRouting;
         synchronized (this) {
             Preconditions.checkState(!ending, "Cannot add a peer after the room call is ending");
+            Preconditions.checkArgument(
+                    sharedMedia == null || sharedMedia.equals(media),
+                    "All MUJI peer sessions must use the room's shared media set");
             Preconditions.checkState(
                     !peerSessions.containsKey(participant),
                     "A Jingle session already exists for this participant");
+            if (sharedMedia == null) {
+                sharedMedia = media;
+            }
             connection.setSharedWebRTCResources(webRTCSharedResources);
             connection.setMujiCallCoordinator(this);
             peerSessions.put(participant, connection);
             participantStates.put(participant, connection.getEndUserState());
+            startAudioRouting = !audioRoutingStarted;
+            audioRoutingStarted = true;
             stateSnapshot = immutableParticipantStates();
+        }
+        if (startAudioRouting) {
+            callIntegration.setVideoState(
+                    Media.audioOnly(media)
+                            ? VideoProfile.STATE_AUDIO_ONLY
+                            : VideoProfile.STATE_BIDIRECTIONAL);
+            callIntegration.setInitialAudioDevice(CallIntegration.initialAudioDevice(media));
+            callIntegration.setDialing();
+            callIntegration.startAudioRouting();
         }
         notifyListener(stateSnapshot);
     }
@@ -95,6 +142,18 @@ public final class MujiCallCoordinator {
 
     public synchronized boolean isFinished() {
         return finished;
+    }
+
+    public CallIntegration getCallIntegration() {
+        return callIntegration;
+    }
+
+    public Jid getRoom() {
+        return room;
+    }
+
+    public String getAccountUuid() {
+        return conversation.getAccount().getUuid();
     }
 
     public void setListener(@Nullable final Listener listener) {
@@ -129,6 +188,16 @@ public final class MujiCallCoordinator {
             Log.w(Config.LOGTAG, "Unable to clear MUJI presence while ending " + room, e);
         }
 
+        final boolean wasConnected;
+        synchronized (this) {
+            wasConnected = hasConnectedPeer;
+        }
+        if (wasConnected) {
+            callIntegration.success();
+        } else {
+            callIntegration.retracted();
+        }
+
         for (final JingleRtpConnection session : sessions) {
             session.endCall();
         }
@@ -140,14 +209,39 @@ public final class MujiCallCoordinator {
             final JingleRtpConnection connection, final RtpEndUserState state) {
         final Jid participant = connection.getWith().asBareJid();
         final Map<Jid, RtpEndUserState> stateSnapshot;
+        final boolean activateCallIntegration;
         synchronized (this) {
             if (peerSessions.get(participant) != connection) {
                 return;
             }
             participantStates.put(participant, state);
+            hasConnectedPeer |= state == RtpEndUserState.CONNECTED;
+            activateCallIntegration =
+                    state == RtpEndUserState.CONNECTED && !ending && !callIntegrationActive;
+            if (activateCallIntegration) {
+                callIntegrationActive = true;
+            }
             stateSnapshot = immutableParticipantStates();
         }
+        if (activateCallIntegration) {
+            callIntegration.setActive();
+        }
         notifyListener(stateSnapshot);
+    }
+
+    void onPeerMediaChanged(
+            final JingleRtpConnection connection, final java.util.Set<Media> media) {
+        synchronized (this) {
+            if (peerSessions.get(connection.getWith().asBareJid()) != connection || ending) {
+                return;
+            }
+            sharedMedia = ImmutableSet.copyOf(media);
+        }
+        callIntegration.setVideoState(
+                Media.audioOnly(media)
+                        ? VideoProfile.STATE_AUDIO_ONLY
+                        : VideoProfile.STATE_BIDIRECTIONAL);
+        callIntegration.setAudioDeviceWhenAvailable(CallIntegration.initialAudioDevice(media));
     }
 
     void onPeerFinished(final JingleRtpConnection connection) {
@@ -174,6 +268,18 @@ public final class MujiCallCoordinator {
 
     private Map<Jid, RtpEndUserState> immutableParticipantStates() {
         return ImmutableMap.copyOf(participantStates);
+    }
+
+    private boolean isActiveMujiParticipant(final Jid participant) {
+        return conversation.getMucOptions().getUsers().stream()
+                .anyMatch(
+                        user -> {
+                            final Jid realJid = user.getRealJid();
+                            return realJid != null
+                                    && realJid.asBareJid().equals(participant)
+                                    && user.isInMujiCall()
+                                    && !user.isPreparingMujiCall();
+                        });
     }
 
     private void notifyListener(final Map<Jid, RtpEndUserState> stateSnapshot) {
@@ -203,6 +309,7 @@ public final class MujiCallCoordinator {
             callback = onFinished;
         }
         webRTCSharedResources.release();
+        callIntegration.verifyDisconnected();
         if (callback != null) {
             callback.accept(this);
         }
@@ -281,5 +388,58 @@ public final class MujiCallCoordinator {
     public interface Listener {
         void onParticipantStatesChanged(
                 Map<Jid, RtpEndUserState> participantStates, RtpEndUserState aggregateState);
+
+        default void onAnswerRequested() {}
+
+        default void onIncomingCallUiRequested() {}
+    }
+
+    @Override
+    public void onCallIntegrationShowIncomingCallUi() {
+        final Listener current;
+        synchronized (this) {
+            current = listener;
+        }
+        if (current != null) {
+            current.onIncomingCallUiRequested();
+        }
+    }
+
+    @Override
+    public void onCallIntegrationDisconnect() {
+        endCall();
+    }
+
+    @Override
+    public void onAudioDeviceChanged(
+            final CallIntegration.AudioDevice selectedAudioDevice,
+            final java.util.Set<CallIntegration.AudioDevice> availableAudioDevices) {
+        service.notifyJingleRtpConnectionUpdate(selectedAudioDevice, availableAudioDevices);
+    }
+
+    @Override
+    public void onCallIntegrationReject() {
+        endCall();
+    }
+
+    @Override
+    public void onCallIntegrationAnswer() {
+        final Listener current;
+        synchronized (this) {
+            current = listener;
+        }
+        if (current != null) {
+            current.onAnswerRequested();
+        }
+    }
+
+    @Override
+    public void onCallIntegrationSilence() {
+        service.getNotificationService().stopSoundAndVibration();
+    }
+
+    @Override
+    public void onCallIntegrationMicrophoneEnabled(final boolean enabled) {
+        webRTCSharedResources.setMicrophoneEnabled(enabled);
     }
 }

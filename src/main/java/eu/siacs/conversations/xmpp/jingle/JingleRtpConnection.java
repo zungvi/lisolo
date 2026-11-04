@@ -95,6 +95,7 @@ public class JingleRtpConnection extends AbstractJingleConnection
             pendingIceCandidates = new LinkedList<>();
     private final OmemoVerification omemoVerification = new OmemoVerification();
     private final CallIntegration callIntegration;
+    private final boolean callIntegrationManagedExternally;
     private final Message message;
 
     private Set<Media> proposedMedia;
@@ -109,7 +110,12 @@ public class JingleRtpConnection extends AbstractJingleConnection
 
     public JingleRtpConnection(
             final XmppConnectionService service, final Id id, final Jid initiator) {
-        this(service, id, initiator, new CallIntegration(service.getApplicationContext()));
+        this(
+                service,
+                id,
+                initiator,
+                new CallIntegration(service.getApplicationContext()),
+                false);
         this.callIntegration.setAddress(
                 CallIntegration.address(id.with.asBareJid()), TelecomManager.PRESENTATION_ALLOWED);
         final var contact = id.getContact();
@@ -123,6 +129,15 @@ public class JingleRtpConnection extends AbstractJingleConnection
             final Id id,
             final Jid initiator,
             final CallIntegration callIntegration) {
+        this(service, id, initiator, callIntegration, false);
+    }
+
+    public JingleRtpConnection(
+            final XmppConnectionService service,
+            final Id id,
+            final Jid initiator,
+            final CallIntegration callIntegration,
+            final boolean callIntegrationManagedExternally) {
         super(service, id, initiator);
         final Conversation conversation =
                 service.findOrCreateConversation(id.account, id.with.asBareJid(), false, false);
@@ -133,7 +148,10 @@ public class JingleRtpConnection extends AbstractJingleConnection
                         Message.TYPE_RTP_SESSION,
                         id.sessionId);
         this.callIntegration = callIntegration;
-        this.callIntegration.setCallback(this);
+        this.callIntegrationManagedExternally = callIntegrationManagedExternally;
+        if (!callIntegrationManagedExternally) {
+            this.callIntegration.setCallback(this);
+        }
     }
 
     @Override
@@ -1702,7 +1720,9 @@ public class JingleRtpConnection extends AbstractJingleConnection
     }
 
     private void startRinging() {
-        this.callIntegration.setRinging();
+        if (!callIntegrationManagedExternally) {
+            this.callIntegration.setRinging();
+        }
         Log.d(
                 Config.LOGTAG,
                 id.account.getJid().asBareJid()
@@ -1714,7 +1734,9 @@ public class JingleRtpConnection extends AbstractJingleConnection
         if (CallIntegration.selfManaged(xmppConnectionService)) {
             return;
         }
-        xmppConnectionService.getNotificationService().startRinging(id, getMedia());
+        if (!callIntegrationManagedExternally) {
+            xmppConnectionService.getNotificationService().startRinging(id, getMedia());
+        }
     }
 
     private synchronized void ringingTimeout() {
@@ -2129,6 +2151,9 @@ public class JingleRtpConnection extends AbstractJingleConnection
     }
 
     private void updateCallIntegrationState() {
+        if (callIntegrationManagedExternally) {
+            return;
+        }
         switch (this.state) {
             case NULL, PROPOSED, SESSION_INITIALIZED -> {
                 if (isInitiator()) {
@@ -2381,14 +2406,16 @@ public class JingleRtpConnection extends AbstractJingleConnection
         final var appSettings = new AppSettings(xmppConnectionService.getApplicationContext());
         this.webRTCWrapper.initializePeerConnection(
                 media, iceServers, trickle, appSettings.isUseRelays());
-        // this.webRTCWrapper.setMicrophoneEnabledOrThrow(callIntegration.isMicrophoneEnabled());
-        this.webRTCWrapper.setMicrophoneEnabledOrThrow(true);
+        this.webRTCWrapper.setMicrophoneEnabledOrThrow(
+                callIntegrationManagedExternally ? callIntegration.isMicrophoneEnabled() : true);
     }
 
     private void acceptCallFromProposed() {
         transitionOrThrow(State.PROCEED);
         xmppConnectionService.getNotificationService().cancelIncomingCallNotification();
-        this.callIntegration.startAudioRouting();
+        if (!callIntegrationManagedExternally) {
+            this.callIntegration.startAudioRouting();
+        }
         id.account.getXmppConnection().getManager(JingleMessageManager.class).accept(id.sessionId);
         final Integer deviceId;
         if (isOmemoEnabled()) {
@@ -2438,7 +2465,9 @@ public class JingleRtpConnection extends AbstractJingleConnection
 
     private void acceptCallFromSessionInitialized() {
         xmppConnectionService.getNotificationService().cancelIncomingCallNotification();
-        this.callIntegration.startAudioRouting();
+        if (!callIntegrationManagedExternally) {
+            this.callIntegration.startAudioRouting();
+        }
         sendSessionAccept();
     }
 
@@ -2693,8 +2722,15 @@ public class JingleRtpConnection extends AbstractJingleConnection
     private void modifyLocalContentMap(final RtpContentMap rtpContentMap) {
         final RtpContentMap activeContents = rtpContentMap.activeContents();
         setLocalContentMap(activeContents);
-        this.callIntegration.setAudioDeviceWhenAvailable(
-                CallIntegration.initialAudioDevice(activeContents.getMedia()));
+        if (callIntegrationManagedExternally) {
+            final MujiCallCoordinator coordinator = this.mujiCallCoordinator;
+            if (coordinator != null) {
+                coordinator.onPeerMediaChanged(this, activeContents.getMedia());
+            }
+        } else {
+            this.callIntegration.setAudioDeviceWhenAvailable(
+                    CallIntegration.initialAudioDevice(activeContents.getMedia()));
+        }
         updateEndUserState();
     }
 
@@ -2838,7 +2874,9 @@ public class JingleRtpConnection extends AbstractJingleConnection
 
     private void updateEndUserState() {
         final RtpEndUserState endUserState = getEndUserState();
-        this.updateCallIntegrationState();
+        if (!callIntegrationManagedExternally) {
+            this.updateCallIntegrationState();
+        }
         xmppConnectionService.notifyJingleRtpConnectionUpdate(
                 id.account, id.with, id.sessionId, endUserState);
         final MujiCallCoordinator coordinator = this.mujiCallCoordinator;
@@ -2848,6 +2886,9 @@ public class JingleRtpConnection extends AbstractJingleConnection
     }
 
     private void updateOngoingCallNotification() {
+        if (callIntegrationManagedExternally) {
+            return;
+        }
         final State state = this.state;
         if (STATES_SHOWING_ONGOING_CALL.contains(state)) {
             if (Arrays.asList(State.PROPOSED, State.SESSION_INITIALIZED).contains(state)
@@ -2901,7 +2942,9 @@ public class JingleRtpConnection extends AbstractJingleConnection
     protected void finish() {
         if (isTerminated()) {
             this.cancelRingingTimeout();
-            this.callIntegration.verifyDisconnected();
+            if (!callIntegrationManagedExternally) {
+                this.callIntegration.verifyDisconnected();
+            }
             this.webRTCWrapper.verifyClosed();
             this.id
                     .account
@@ -2964,11 +3007,13 @@ public class JingleRtpConnection extends AbstractJingleConnection
 
     public void setProposedMedia(final Set<Media> media) {
         this.proposedMedia = media;
-        this.callIntegration.setVideoState(
-                Media.audioOnly(media)
-                        ? VideoProfile.STATE_AUDIO_ONLY
-                        : VideoProfile.STATE_BIDIRECTIONAL);
-        this.callIntegration.setInitialAudioDevice(CallIntegration.initialAudioDevice(media));
+        if (!callIntegrationManagedExternally) {
+            this.callIntegration.setVideoState(
+                    Media.audioOnly(media)
+                            ? VideoProfile.STATE_AUDIO_ONLY
+                            : VideoProfile.STATE_BIDIRECTIONAL);
+            this.callIntegration.setInitialAudioDevice(CallIntegration.initialAudioDevice(media));
+        }
     }
 
     public void setSharedWebRTCResources(final WebRTCSharedResources sharedWebRTCResources) {
