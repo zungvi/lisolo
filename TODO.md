@@ -18,7 +18,8 @@
 - [x] Assess XEP-0272 (MUJI) support and compatibility across active XMPP servers and clients; record interoperability requirements before implementation.
 - [x] Design group call flows for starting, joining, leaving, reconnecting, and handling participant or permission changes.
 - [ ] Implement a per-room coordinator that owns peer sessions and aggregates participant state.
-- [ ] Share local audio/video capture and tracks across peer sessions without changing one-to-one media ownership.
+- [x] Add reference-counted shared WebRTC resources and an injection path for peer sessions, while one-to-one calls keep private resources.
+- [ ] Use one shared resource holder and CallIntegration/audio route from the per-room coordinator.
 - [ ] Expose the aggregate as one call through the service, activity, and Telecom controls while preserving one-to-one call flows.
 - [x] Add typed MUJI stanza support and retain each MUC participant's current/preparing MUJI state.
 - [x] Refuse MUJI preparation in rooms that are not members-only and non-anonymous because peer Jingle sessions use real JIDs.

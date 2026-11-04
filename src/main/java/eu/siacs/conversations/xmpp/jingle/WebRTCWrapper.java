@@ -1,8 +1,6 @@
 package eu.siacs.conversations.xmpp.jingle;
 
-import android.content.Context;
 import android.media.ToneGenerator;
-import android.os.Build;
 import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -10,7 +8,6 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -28,26 +25,20 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.webrtc.AudioSource;
 import org.webrtc.AudioTrack;
 import org.webrtc.CandidatePairChangeEvent;
 import org.webrtc.DataChannel;
-import org.webrtc.DefaultVideoDecoderFactory;
-import org.webrtc.DefaultVideoEncoderFactory;
 import org.webrtc.DtmfSender;
 import org.webrtc.EglBase;
 import org.webrtc.IceCandidate;
-import org.webrtc.MediaConstraints;
 import org.webrtc.MediaStream;
 import org.webrtc.MediaStreamTrack;
 import org.webrtc.PeerConnection;
-import org.webrtc.PeerConnectionFactory;
 import org.webrtc.RtpReceiver;
 import org.webrtc.RtpTransceiver;
 import org.webrtc.SdpObserver;
 import org.webrtc.SessionDescription;
 import org.webrtc.VideoTrack;
-import org.webrtc.audio.JavaAudioDeviceModule;
 
 import java.util.Map;
 public class WebRTCWrapper {
@@ -76,27 +67,6 @@ public class WebRTCWrapper {
         builder.put("#", ToneGenerator.TONE_DTMF_P);
         TONE_CODES = builder.build();
     }
-
-    private static final Set<String> HARDWARE_AEC_BLACKLIST =
-            new ImmutableSet.Builder<String>()
-                    .add("Pixel")
-                    .add("Pixel XL")
-                    .add("Moto G5")
-                    .add("Moto G (5S) Plus")
-                    .add("Moto G4")
-                    .add("TA-1053")
-                    .add("Mi A1")
-                    .add("Mi A2")
-                    .add("E5823") // Sony z5 compact
-                    .add("Redmi Note 5")
-                    .add("FP2") // Fairphone FP2
-                    .add("FP4") // Fairphone FP4
-                    .add("MI 5")
-                    .add("GT-I9515") // Samsung Galaxy S4 Value Edition (jfvelte)
-                    .add("GT-I9515L") // Samsung Galaxy S4 Value Edition (jfvelte)
-                    .add("GT-I9505") // Samsung Galaxy S4 (jfltexx)
-                    .add("Nexus 7") // ASUS Nexus 7
-                    .build();
 
     private final EventCallback eventCallback;
     private final AtomicBoolean readyToReceivedIceCandidates = new AtomicBoolean(false);
@@ -236,11 +206,9 @@ public class WebRTCWrapper {
                     Log.d(EXTENDED_LOGGING_TAG, "onRemoveTrack(" + receiver.id() + ")");
                 }
             };
-    @Nullable private PeerConnectionFactory peerConnectionFactory = null;
     @Nullable private PeerConnection peerConnection = null;
-    private Context context = null;
-    private EglBase eglBase = null;
-    private VideoSourceWrapper videoSourceWrapper;
+    @Nullable private WebRTCSharedResources sharedResources;
+    private boolean isSendingVideo;
 
     WebRTCWrapper(final EventCallback eventCallback) {
         this.eventCallback = eventCallback;
@@ -255,20 +223,15 @@ public class WebRTCWrapper {
     }
 
     public void setup(final XmppConnectionService service) throws InitializationException {
-        try {
-            PeerConnectionFactory.initialize(
-                    PeerConnectionFactory.InitializationOptions.builder(service)
-                            .setFieldTrials("WebRTC-BindUsingInterfaceName/Enabled/")
-                            .createInitializationOptions());
-        } catch (final UnsatisfiedLinkError e) {
-            throw new InitializationException("Unable to initialize PeerConnectionFactory", e);
-        }
-        try {
-            this.eglBase = EglBase.create();
-        } catch (final RuntimeException e) {
-            throw new InitializationException("Unable to create EGL base", e);
-        }
-        this.context = service;
+        Preconditions.checkState(this.sharedResources == null, "WebRTC is already set up");
+        this.sharedResources = WebRTCSharedResources.create(service);
+    }
+
+    synchronized void setup(
+            final XmppConnectionService service, final WebRTCSharedResources sharedResources) {
+        Preconditions.checkState(this.sharedResources == null, "WebRTC is already set up");
+        Preconditions.checkNotNull(service);
+        this.sharedResources = Preconditions.checkNotNull(sharedResources).acquire();
     }
 
     synchronized void initializePeerConnection(
@@ -277,37 +240,18 @@ public class WebRTCWrapper {
             final boolean trickle,
             final boolean useRelays)
             throws InitializationException {
-        Preconditions.checkState(this.eglBase != null);
+        final WebRTCSharedResources sharedResources = requireSharedResources();
         Preconditions.checkNotNull(media);
         Preconditions.checkArgument(
                 !media.isEmpty(), "media can not be empty when initializing peer connection");
-        final boolean setUseHardwareAcousticEchoCanceler =
-                !HARDWARE_AEC_BLACKLIST.contains(Build.MODEL);
-        Log.d(
-                Config.LOGTAG,
-                String.format(
-                        "setUseHardwareAcousticEchoCanceler(%s) model=%s",
-                        setUseHardwareAcousticEchoCanceler, Build.MODEL));
         final var relaysAvailable = Iterables.any(iceServers, i -> i != null && isTurnRelay(i));
         this.requiresArtificialFail = useRelays && !relaysAvailable;
-        this.peerConnectionFactory =
-                PeerConnectionFactory.builder()
-                        .setVideoDecoderFactory(
-                                new DefaultVideoDecoderFactory(eglBase.getEglBaseContext()))
-                        .setVideoEncoderFactory(
-                                new DefaultVideoEncoderFactory(
-                                        eglBase.getEglBaseContext(), true, true))
-                        .setAudioDeviceModule(
-                                JavaAudioDeviceModule.builder(requireContext())
-                                        .setUseHardwareAcousticEchoCanceler(
-                                                setUseHardwareAcousticEchoCanceler)
-                                        .createAudioDeviceModule())
-                        .createPeerConnectionFactory();
 
         final PeerConnection.RTCConfiguration rtcConfig =
                 buildConfiguration(iceServers, trickle, useRelays);
         final PeerConnection peerConnection =
-                requirePeerConnectionFactory()
+                sharedResources
+                        .getPeerConnectionFactory()
                         .createPeerConnection(rtcConfig, peerConnectionObserver);
         if (peerConnection == null) {
             throw new InitializationException("Unable to create PeerConnection");
@@ -326,24 +270,6 @@ public class WebRTCWrapper {
         this.peerConnection = peerConnection;
     }
 
-    private VideoSourceWrapper initializeVideoSourceWrapper() {
-        final VideoSourceWrapper existingVideoSourceWrapper = this.videoSourceWrapper;
-        if (existingVideoSourceWrapper != null) {
-            existingVideoSourceWrapper.startCapture();
-            return existingVideoSourceWrapper;
-        }
-        final VideoSourceWrapper videoSourceWrapper =
-                new VideoSourceWrapper.Factory(requireContext()).create();
-        if (videoSourceWrapper == null) {
-            throw new IllegalStateException("Could not instantiate VideoSourceWrapper");
-        }
-        videoSourceWrapper.initialize(
-                requirePeerConnectionFactory(), requireContext(), eglBase.getEglBaseContext());
-        videoSourceWrapper.startCapture();
-        this.videoSourceWrapper = videoSourceWrapper;
-        return videoSourceWrapper;
-    }
-
     public synchronized boolean addTrack(final Media media) {
         if (media == Media.VIDEO) {
             return addVideoTrack(requirePeerConnection());
@@ -360,12 +286,8 @@ public class WebRTCWrapper {
     }
 
     private boolean addAudioTrack(final PeerConnection peerConnection) {
-        final AudioSource audioSource =
-                requirePeerConnectionFactory().createAudioSource(new MediaConstraints());
-        final AudioTrack audioTrack =
-                requirePeerConnectionFactory()
-                        .createAudioTrack(TrackWrapper.id(AudioTrack.class), audioSource);
-        this.localAudioTrack = TrackWrapper.addTrack(peerConnection, audioTrack);
+        this.localAudioTrack =
+                TrackWrapper.addTrack(peerConnection, requireSharedResources().getAudioTrack());
         return true;
     }
 
@@ -379,23 +301,27 @@ public class WebRTCWrapper {
                 return false;
             }
             transceiver.setDirection(RtpTransceiver.RtpTransceiverDirection.SEND_RECV);
-            this.videoSourceWrapper.startCapture();
+            if (!isSendingVideo) {
+                requireSharedResources().startVideoSending();
+                isSendingVideo = true;
+            }
             return true;
         }
-        final VideoSourceWrapper videoSourceWrapper;
+        final VideoTrack videoTrack;
         try {
-            videoSourceWrapper = initializeVideoSourceWrapper();
+            videoTrack = requireSharedResources().startVideoSending();
         } catch (final IllegalStateException e) {
             Log.d(Config.LOGTAG, "could not add video track", e);
             return false;
         }
-        final VideoTrack videoTrack =
-                requirePeerConnectionFactory()
-                        .createVideoTrack(
-                                TrackWrapper.id(VideoTrack.class),
-                                videoSourceWrapper.getVideoSource());
-        this.localVideoTrack = TrackWrapper.addTrack(peerConnection, videoTrack);
-        return true;
+        try {
+            this.localVideoTrack = TrackWrapper.addTrack(peerConnection, videoTrack);
+            isSendingVideo = true;
+            return true;
+        } catch (final RuntimeException e) {
+            requireSharedResources().stopVideoSending();
+            throw e;
+        }
     }
 
     private void removeVideoTrack(final PeerConnection peerConnection) {
@@ -409,13 +335,9 @@ public class WebRTCWrapper {
             }
             exactTransceiver.setDirection(RtpTransceiver.RtpTransceiverDirection.INACTIVE);
         }
-        final VideoSourceWrapper videoSourceWrapper = this.videoSourceWrapper;
-        if (videoSourceWrapper != null) {
-            try {
-                videoSourceWrapper.stopCapture();
-            } catch (final InterruptedException e) {
-                Log.e(Config.LOGTAG, "could not stop capturing video source", e);
-            }
+        if (isSendingVideo) {
+            requireSharedResources().stopVideoSending();
+            isSendingVideo = false;
         }
     }
 
@@ -484,38 +406,29 @@ public class WebRTCWrapper {
 
     synchronized void close() {
         final PeerConnection peerConnection = this.peerConnection;
-        final PeerConnectionFactory peerConnectionFactory = this.peerConnectionFactory;
-        final VideoSourceWrapper videoSourceWrapper = this.videoSourceWrapper;
-        final EglBase eglBase = this.eglBase;
+        final WebRTCSharedResources sharedResources = this.sharedResources;
+        this.sharedResources = null;
         if (peerConnection != null) {
             this.peerConnection = null;
             dispose(peerConnection);
         }
+        if (isSendingVideo && sharedResources != null) {
+            sharedResources.stopVideoSending();
+        }
+        isSendingVideo = false;
         this.localVideoTrack = null;
         this.remoteVideoTrack = null;
-        if (videoSourceWrapper != null) {
-            this.videoSourceWrapper = null;
-            try {
-                videoSourceWrapper.stopCapture();
-            } catch (final InterruptedException e) {
-                Log.e(Config.LOGTAG, "unable to stop capturing");
-            }
-            videoSourceWrapper.dispose();
-        }
-        if (eglBase != null) {
-            eglBase.release();
-            this.eglBase = null;
-        }
-        if (peerConnectionFactory != null) {
-            this.peerConnectionFactory = null;
-            peerConnectionFactory.dispose();
+        this.localAudioTrack = null;
+        if (sharedResources != null) {
+            sharedResources.release();
         }
     }
 
     synchronized void verifyClosed() {
         if (this.peerConnection != null
-                || this.eglBase != null
+                || this.sharedResources != null
                 || this.localVideoTrack != null
+                || this.localAudioTrack != null
                 || this.remoteVideoTrack != null) {
             final AssertionError e =
                     new AssertionError("WebRTCWrapper hasn't been closed properly");
@@ -525,22 +438,22 @@ public class WebRTCWrapper {
     }
 
     boolean isCameraSwitchable() {
-        final VideoSourceWrapper videoSourceWrapper = this.videoSourceWrapper;
-        return videoSourceWrapper != null && videoSourceWrapper.isCameraSwitchable();
+        final WebRTCSharedResources sharedResources = this.sharedResources;
+        return sharedResources != null && sharedResources.isCameraSwitchable();
     }
 
     boolean isFrontCamera() {
-        final VideoSourceWrapper videoSourceWrapper = this.videoSourceWrapper;
-        return videoSourceWrapper == null || videoSourceWrapper.isFrontCamera();
+        final WebRTCSharedResources sharedResources = this.sharedResources;
+        return sharedResources == null || sharedResources.isFrontCamera();
     }
 
     ListenableFuture<Boolean> switchCamera() {
-        final VideoSourceWrapper videoSourceWrapper = this.videoSourceWrapper;
-        if (videoSourceWrapper == null) {
+        final WebRTCSharedResources sharedResources = this.sharedResources;
+        if (sharedResources == null) {
             return Futures.immediateFailedFuture(
-                    new IllegalStateException("VideoSourceWrapper has not been initialized"));
+                    new IllegalStateException("WebRTC resources have not been initialized"));
         }
-        return videoSourceWrapper.switchCamera();
+        return sharedResources.switchCamera();
     }
 
     boolean isMicrophoneEnabled() {
@@ -760,12 +673,12 @@ public class WebRTCWrapper {
     }
 
     @NonNull
-    private PeerConnectionFactory requirePeerConnectionFactory() {
-        final PeerConnectionFactory peerConnectionFactory = this.peerConnectionFactory;
-        if (peerConnectionFactory == null) {
-            throw new IllegalStateException("Make sure PeerConnectionFactory is initialized");
+    private WebRTCSharedResources requireSharedResources() {
+        final WebRTCSharedResources sharedResources = this.sharedResources;
+        if (sharedResources == null) {
+            throw new IllegalStateException("Make sure WebRTC is initialized");
         }
-        return peerConnectionFactory;
+        return sharedResources;
     }
 
     void addIceCandidate(IceCandidate iceCandidate) {
@@ -785,7 +698,7 @@ public class WebRTCWrapper {
     }
 
     EglBase.Context getEglBaseContext() {
-        return this.eglBase.getEglBaseContext();
+        return requireSharedResources().getEglBaseContext();
     }
 
     Optional<VideoTrack> getLocalVideoTrack() {
@@ -794,14 +707,6 @@ public class WebRTCWrapper {
 
     Optional<VideoTrack> getRemoteVideoTrack() {
         return Optional.fromNullable(this.remoteVideoTrack);
-    }
-
-    private Context requireContext() {
-        final Context context = this.context;
-        if (context == null) {
-            throw new IllegalStateException("call setup first");
-        }
-        return context;
     }
 
     void execute(final Runnable command) {
@@ -831,11 +736,11 @@ public class WebRTCWrapper {
 
     public static class InitializationException extends Exception {
 
-        private InitializationException(final String message, final Throwable throwable) {
+        InitializationException(final String message, final Throwable throwable) {
             super(message, throwable);
         }
 
-        private InitializationException(final String message) {
+        InitializationException(final String message) {
             super(message);
         }
     }

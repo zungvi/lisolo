@@ -88,6 +88,7 @@ public class JingleRtpConnection extends AbstractJingleConnection
     private static final long BUSY_TIME_OUT = 30;
 
     private final WebRTCWrapper webRTCWrapper = new WebRTCWrapper(this);
+    @Nullable private WebRTCSharedResources sharedWebRTCResources;
     private final Queue<
                     Map.Entry<String, DescriptionTransport<RtpDescription, IceUdpTransportInfo>>>
             pendingIceCandidates = new LinkedList<>();
@@ -2363,7 +2364,12 @@ public class JingleRtpConnection extends AbstractJingleConnection
                 .getXmppConnection()
                 .getManager(JingleManager.class)
                 .ensureConnectionIsRegistered(this);
-        this.webRTCWrapper.setup(this.xmppConnectionService);
+        final WebRTCSharedResources sharedWebRTCResources = this.sharedWebRTCResources;
+        if (sharedWebRTCResources == null) {
+            this.webRTCWrapper.setup(this.xmppConnectionService);
+        } else {
+            this.webRTCWrapper.setup(this.xmppConnectionService, sharedWebRTCResources);
+        }
         final var appSettings = new AppSettings(xmppConnectionService.getApplicationContext());
         this.webRTCWrapper.initializePeerConnection(
                 media, iceServers, trickle, appSettings.isUseRelays());
@@ -2947,6 +2953,15 @@ public class JingleRtpConnection extends AbstractJingleConnection
                         ? VideoProfile.STATE_AUDIO_ONLY
                         : VideoProfile.STATE_BIDIRECTIONAL);
         this.callIntegration.setInitialAudioDevice(CallIntegration.initialAudioDevice(media));
+    }
+
+    public void setSharedWebRTCResources(final WebRTCSharedResources sharedWebRTCResources) {
+        Preconditions.checkState(
+                this.state == State.NULL,
+                "Shared WebRTC resources must be assigned before a Jingle session starts");
+        Preconditions.checkState(
+                this.sharedWebRTCResources == null, "Shared WebRTC resources are already set");
+        this.sharedWebRTCResources = Preconditions.checkNotNull(sharedWebRTCResources);
     }
 
     public void fireStateUpdate() {
