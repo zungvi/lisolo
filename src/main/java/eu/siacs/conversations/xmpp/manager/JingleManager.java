@@ -625,6 +625,14 @@ public class JingleManager extends AbstractManager {
     }
 
     public Optional<OngoingRtpSession> getOngoingRtpConnection(final Contact contact) {
+        final MujiCallCoordinator mujiCallCoordinator =
+                getMujiCallCoordinator(contact.getAddress().asBareJid());
+        if (mujiCallCoordinator != null
+                && !mujiCallCoordinator.isEnding()
+                && !mujiCallCoordinator.isFinished()
+                && mujiCallCoordinator.getActiveParticipantCount() > 0) {
+            return Optional.of(mujiCallCoordinator);
+        }
         for (final var entry : this.connections.entrySet()) {
             if (entry.getValue() instanceof JingleRtpConnection jingleRtpConnection) {
                 final AbstractJingleConnection.Id id = entry.getKey();
@@ -647,6 +655,36 @@ public class JingleManager extends AbstractManager {
             }
         }
         return Optional.absent();
+    }
+
+    @Nullable
+    public MujiCallCoordinator getMujiCallCoordinator(final Jid room) {
+        synchronized (mujiCallCoordinators) {
+            return mujiCallCoordinators.get(room.asBareJid());
+        }
+    }
+
+    @Nullable
+    public MujiCallCoordinator findMujiCallCoordinator(final Jid room, final String sessionId) {
+        final MujiCallCoordinator coordinator = getMujiCallCoordinator(room);
+        return coordinator != null && coordinator.getSessionId().equals(sessionId)
+                ? coordinator
+                : null;
+    }
+
+    @Nullable
+    public OngoingRtpSession getOngoingRtpSession() {
+        synchronized (mujiCallCoordinators) {
+            for (final MujiCallCoordinator coordinator : mujiCallCoordinators.values()) {
+                if (!coordinator.isEnding()
+                        && !coordinator.isFinished()
+                        && coordinator.getActiveParticipantCount() > 0) {
+                    return coordinator;
+                }
+            }
+        }
+        final JingleRtpConnection connection = getOngoingRtpConnection();
+        return connection;
     }
 
     public JingleRtpConnection getOngoingRtpConnection() {
@@ -672,6 +710,16 @@ public class JingleManager extends AbstractManager {
     }
 
     public boolean fireJingleRtpConnectionStateUpdates() {
+        synchronized (mujiCallCoordinators) {
+            for (final MujiCallCoordinator coordinator : mujiCallCoordinators.values()) {
+                if (!coordinator.isEnding()
+                        && !coordinator.isFinished()
+                        && coordinator.getActiveParticipantCount() > 0) {
+                    coordinator.fireStateUpdate();
+                    return true;
+                }
+            }
+        }
         for (final AbstractJingleConnection connection : this.connections.values()) {
             if (connection instanceof JingleRtpConnection jingleRtpConnection) {
                 if (jingleRtpConnection.isTerminated()) {
@@ -1116,6 +1164,14 @@ public class JingleManager extends AbstractManager {
     }
 
     public void endRtpSession(final String sessionId) {
+        synchronized (mujiCallCoordinators) {
+            for (final MujiCallCoordinator coordinator : mujiCallCoordinators.values()) {
+                if (coordinator.getSessionId().equals(sessionId)) {
+                    coordinator.endCall();
+                    return;
+                }
+            }
+        }
         for (final AbstractJingleConnection connection : this.connections.values()) {
             if (connection.getId().sessionId.equals(sessionId)) {
                 if (connection instanceof JingleRtpConnection jingleRtpConnection) {

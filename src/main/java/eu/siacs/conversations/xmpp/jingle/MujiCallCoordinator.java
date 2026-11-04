@@ -1,5 +1,6 @@
 package eu.siacs.conversations.xmpp.jingle;
 
+import android.os.SystemClock;
 import android.telecom.TelecomManager;
 import android.telecom.VideoProfile;
 import android.util.Log;
@@ -22,11 +23,12 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 /** Owns the peer sessions and shared media resources for one MUJI room call. */
-public final class MujiCallCoordinator implements CallIntegration.Callback {
+public final class MujiCallCoordinator implements CallIntegration.Callback, OngoingRtpSession {
 
     private final XmppConnectionService service;
     private final Conversation conversation;
     private final Jid room;
+    private final AbstractJingleConnection.Id id;
     private final WebRTCSharedResources webRTCSharedResources;
     private final CallIntegration callIntegration;
     private final LinkedHashMap<Jid, JingleRtpConnection> peerSessions = new LinkedHashMap<>();
@@ -37,6 +39,7 @@ public final class MujiCallCoordinator implements CallIntegration.Callback {
     private boolean audioRoutingStarted;
     private boolean hasConnectedPeer;
     private boolean callIntegrationActive;
+    private long connectedAt;
     @Nullable private Set<Media> sharedMedia;
     @Nullable private Listener listener;
     @Nullable private Consumer<MujiCallCoordinator> onFinished;
@@ -48,6 +51,7 @@ public final class MujiCallCoordinator implements CallIntegration.Callback {
         this.service = service;
         this.conversation = conversation;
         this.room = conversation.getAddress().asBareJid();
+        this.id = AbstractJingleConnection.Id.of(conversation.getAccount(), room);
         this.webRTCSharedResources = webRTCSharedResources;
         this.callIntegration = new CallIntegration(service.getApplicationContext());
         this.callIntegration.setCallback(this);
@@ -148,12 +152,48 @@ public final class MujiCallCoordinator implements CallIntegration.Callback {
         return callIntegration;
     }
 
+    @Override
+    public Jid getWith() {
+        return room;
+    }
+
+    @Override
+    public String getSessionId() {
+        return id.sessionId;
+    }
+
+    @Override
+    public synchronized Set<Media> getMedia() {
+        return sharedMedia == null ? ImmutableSet.of() : sharedMedia;
+    }
+
     public Jid getRoom() {
         return room;
     }
 
     public String getAccountUuid() {
         return conversation.getAccount().getUuid();
+    }
+
+    public Conversation getConversation() {
+        return conversation;
+    }
+
+    @Nullable
+    public synchronized JingleRtpConnection getRepresentativePeerSession() {
+        return peerSessions.values().stream().findFirst().orElse(null);
+    }
+
+    public synchronized int getActiveParticipantCount() {
+        return peerSessions.size();
+    }
+
+    public synchronized boolean zeroDuration() {
+        return connectedAt == 0;
+    }
+
+    public synchronized long getCallDuration() {
+        return connectedAt == 0 ? 0 : SystemClock.elapsedRealtime() - connectedAt;
     }
 
     public void setListener(@Nullable final Listener listener) {
@@ -197,6 +237,7 @@ public final class MujiCallCoordinator implements CallIntegration.Callback {
         } else {
             callIntegration.retracted();
         }
+        service.removeOngoingCall();
 
         for (final JingleRtpConnection session : sessions) {
             session.endCall();
@@ -216,6 +257,9 @@ public final class MujiCallCoordinator implements CallIntegration.Callback {
             }
             participantStates.put(participant, state);
             hasConnectedPeer |= state == RtpEndUserState.CONNECTED;
+            if (state == RtpEndUserState.CONNECTED && connectedAt == 0) {
+                connectedAt = SystemClock.elapsedRealtime();
+            }
             activateCallIntegration =
                     state == RtpEndUserState.CONNECTED && !ending && !callIntegrationActive;
             if (activateCallIntegration) {
@@ -293,10 +337,22 @@ public final class MujiCallCoordinator implements CallIntegration.Callback {
     private void notifyListener(
             @Nullable final Listener listener,
             final Map<Jid, RtpEndUserState> stateSnapshot) {
-        if (listener != null) {
-            listener.onParticipantStatesChanged(
-                    stateSnapshot, aggregateState(stateSnapshot, isEnding()));
+        final RtpEndUserState aggregateState = aggregateState(stateSnapshot, isEnding());
+        service.notifyMujiCallUpdate(
+                conversation.getAccount(), room, id.sessionId, stateSnapshot, aggregateState);
+        if (!isEnding() && getActiveParticipantCount() > 0 && !getMedia().isEmpty()) {
+            service.setOngoingCall(
+                    id, getMedia(), aggregateState == RtpEndUserState.RECONNECTING);
+        } else if (getActiveParticipantCount() == 0) {
+            service.removeOngoingCall();
         }
+        if (listener != null) {
+            listener.onParticipantStatesChanged(stateSnapshot, aggregateState);
+        }
+    }
+
+    public void fireStateUpdate() {
+        notifyListener(getParticipantStates());
     }
 
     private void releaseResourcesIfFinished() {

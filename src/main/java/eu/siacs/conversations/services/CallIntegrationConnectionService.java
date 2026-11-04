@@ -33,6 +33,7 @@ import eu.siacs.conversations.xmpp.Jid;
 import eu.siacs.conversations.xmpp.jingle.AbstractJingleConnection;
 import eu.siacs.conversations.xmpp.jingle.JingleRtpConnection;
 import eu.siacs.conversations.xmpp.jingle.Media;
+import eu.siacs.conversations.xmpp.jingle.MujiCallCoordinator;
 import eu.siacs.conversations.xmpp.jingle.RtpEndUserState;
 import eu.siacs.conversations.xmpp.manager.JingleManager;
 import java.util.Arrays;
@@ -107,6 +108,19 @@ public class CallIntegrationConnectionService extends ConnectionService {
         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
         final Connection callIntegration;
         if (with.isBareJid()) {
+            final var jingleManager = account.getXmppConnection().getManager(JingleManager.class);
+            final MujiCallCoordinator mujiCallCoordinator =
+                    jingleManager.getMujiCallCoordinator(with);
+            if (mujiCallCoordinator != null
+                    && !mujiCallCoordinator.isEnding()
+                    && !mujiCallCoordinator.isFinished()) {
+                intent.putExtra(
+                        RtpSessionActivity.EXTRA_SESSION_ID,
+                        mujiCallCoordinator.getSessionId());
+                callIntegration = mujiCallCoordinator.getCallIntegration();
+                service.startActivity(intent);
+                return callIntegration;
+            }
             final var contact = account.getRoster().getContact(with);
             if (Config.JINGLE_MESSAGE_INIT_STRICT_OFFLINE_CHECK
                     && contact.getPresences().isEmpty()) {
@@ -120,8 +134,6 @@ public class CallIntegrationConnectionService extends ConnectionService {
                 // actually attempted
                 // sendJingleFinishMessage(service, contact, Reason.CONNECTIVITY_ERROR);
             } else {
-                final var jingleManager =
-                        account.getXmppConnection().getManager(JingleManager.class);
                 final JingleManager.RtpSessionProposal proposal;
                 try {
                     proposal = jingleManager.proposeJingleRtpSession(with, media);
@@ -219,6 +231,12 @@ public class CallIntegrationConnectionService extends ConnectionService {
         final var jid = Jid.of(uri.getSchemeSpecificPart());
         final Account account = service.findAccountByUuid(phoneAccountHandle.getId());
         final var jingleManager = account.getXmppConnection().getManager(JingleManager.class);
+        final MujiCallCoordinator mujiCallCoordinator =
+                jingleManager.findMujiCallCoordinator(jid, sid);
+        if (mujiCallCoordinator != null) {
+            Log.d(Config.LOGTAG, "registering call integration for incoming MUJI call");
+            return mujiCallCoordinator.getCallIntegration();
+        }
         final var weakReference = jingleManager.findJingleRtpConnection(jid, sid);
         if (weakReference == null) {
             Log.d(Config.LOGTAG, "no connection found for " + jid + " and sid=" + sid);

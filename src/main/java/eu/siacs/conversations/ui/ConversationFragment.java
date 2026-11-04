@@ -142,6 +142,7 @@ import eu.siacs.conversations.xmpp.XmppConnection;
 import eu.siacs.conversations.xmpp.jingle.AbstractJingleConnection;
 import eu.siacs.conversations.xmpp.jingle.JingleFileTransferConnection;
 import eu.siacs.conversations.xmpp.jingle.Media;
+import eu.siacs.conversations.xmpp.jingle.MujiCallCoordinator;
 import eu.siacs.conversations.xmpp.jingle.OngoingRtpSession;
 import eu.siacs.conversations.xmpp.jingle.RtpCapability;
 import eu.siacs.conversations.xmpp.manager.BlockingManager;
@@ -641,7 +642,17 @@ public class ConversationFragment extends XmppFragment
                                         ? R.string.action_muc_details
                                         : R.string.channel_details);
                         menuCall.setVisible(false);
-                        menuOngoingCall.setVisible(false);
+                        final XmppConnectionService service = getXmppConnectionService();
+                        final var manager =
+                                c.getAccount().getXmppConnection().getManager(JingleManager.class);
+                        final Optional<OngoingRtpSession> ongoingRtpSession =
+                                service == null
+                                        ? Optional.absent()
+                                        : manager.getOngoingRtpConnection(c.getContact());
+                        menuOngoingCall.setVisible(
+                                ongoingRtpSession.isPresent()
+                                        && ongoingRtpSession.get()
+                                                instanceof MujiCallCoordinator);
                     } else {
                         final var manager =
                                 c.getAccount().getXmppConnection().getManager(JingleManager.class);
@@ -1939,6 +1950,9 @@ public class ConversationFragment extends XmppFragment
                     RtpSessionActivity.EXTRA_ACCOUNT, account.getJid().asBareJid().toString());
             intent.putExtra(RtpSessionActivity.EXTRA_WITH, id.getWith().toString());
             if (id instanceof AbstractJingleConnection) {
+                intent.putExtra(RtpSessionActivity.EXTRA_SESSION_ID, id.getSessionId());
+                startActivity(intent);
+            } else if (id instanceof MujiCallCoordinator) {
                 intent.putExtra(RtpSessionActivity.EXTRA_SESSION_ID, id.getSessionId());
                 startActivity(intent);
             } else if (id instanceof JingleManager.RtpSessionProposal proposal) {

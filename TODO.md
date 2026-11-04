@@ -20,7 +20,7 @@
 - [x] Implement a per-room coordinator that owns peer sessions, injects shared WebRTC resources, and aggregates participant state.
 - [x] Add reference-counted shared WebRTC resources and an injection path for peer sessions, while one-to-one calls keep private resources.
 - [x] Give the coordinator one CallIntegration/audio route, suppress per-peer Telecom state updates, and preserve one-to-one call behavior.
-- [ ] Expose the aggregate as one call through the service, activity, and Telecom controls while preserving one-to-one call flows.
+- [x] Expose the aggregate as one call through the service, activity, conversation menu, notifications, and Telecom controls while preserving one-to-one call flows.
 - [x] Add typed MUJI stanza support and retain each MUC participant's current/preparing MUJI state.
 - [x] Refuse MUJI preparation in rooms that are not members-only and non-anonymous because peer Jingle sessions use real JIDs.
 - [x] Send MUJI preparing presence and wait for the reflected self presence and other in-room participants to finish preparing, with timeout and MUC-loss failure handling.

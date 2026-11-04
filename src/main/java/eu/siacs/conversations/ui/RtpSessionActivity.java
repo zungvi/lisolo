@@ -46,6 +46,7 @@ import java.lang.ref.WeakReference;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import eu.siacs.conversations.Config;
@@ -67,6 +68,7 @@ import eu.siacs.conversations.xmpp.jingle.AbstractJingleConnection;
 import eu.siacs.conversations.xmpp.jingle.ContentAddition;
 import eu.siacs.conversations.xmpp.jingle.JingleRtpConnection;
 import eu.siacs.conversations.xmpp.jingle.Media;
+import eu.siacs.conversations.xmpp.jingle.MujiCallCoordinator;
 import eu.siacs.conversations.xmpp.jingle.OngoingRtpSession;
 import eu.siacs.conversations.xmpp.jingle.RtpCapability;
 import eu.siacs.conversations.xmpp.jingle.RtpEndUserState;
@@ -137,6 +139,7 @@ public class RtpSessionActivity extends XmppActivity
     private static final int REQUEST_ACCEPT_CONTENT = 0x1112;
     private static final int REQUEST_ADD_CONTENT = 0x1113;
     private WeakReference<JingleRtpConnection> rtpConnectionReference;
+    private WeakReference<MujiCallCoordinator> mujiCallCoordinatorReference;
 
     private ActivityRtpSessionBinding binding;
     private PowerManager.WakeLock mProximityWakeLock;
@@ -268,6 +271,10 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private boolean isSwitchToConversationVisible() {
+        final MujiCallCoordinator coordinator = getMujiCallCoordinator();
+        if (coordinator != null) {
+            return STATES_SHOWING_SWITCH_TO_CHAT.contains(coordinator.getAggregateState());
+        }
         final JingleRtpConnection connection =
                 this.rtpConnectionReference != null ? this.rtpConnectionReference.get() : null;
         return connection != null
@@ -275,6 +282,9 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private boolean isSwitchToVideoVisible() {
+        if (getMujiCallCoordinator() != null) {
+            return false;
+        }
         final JingleRtpConnection connection =
                 this.rtpConnectionReference != null ? this.rtpConnectionReference.get() : null;
         if (connection == null) {
@@ -284,6 +294,9 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private boolean isAudioOnlyConversation() {
+        if (getMujiCallCoordinator() != null) {
+            return false;
+        }
         final JingleRtpConnection connection =
                 this.rtpConnectionReference != null ? this.rtpConnectionReference.get() : null;
         return connection != null &&
@@ -292,6 +305,11 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private void switchToConversation() {
+        final MujiCallCoordinator coordinator = getMujiCallCoordinator();
+        if (coordinator != null) {
+            switchToConversation(coordinator.getConversation());
+            return;
+        }
         final Contact contact = getWith();
         final Conversation conversation =
                 xmppConnectionService.findOrCreateConversation(
@@ -342,6 +360,11 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private void endCall() {
+        final MujiCallCoordinator coordinator = getMujiCallCoordinator();
+        if (coordinator != null) {
+            coordinator.endCall();
+            return;
+        }
         if (this.rtpConnectionReference == null) {
             retractSessionProposal();
             finish();
@@ -465,10 +488,13 @@ public class RtpSessionActivity extends XmppActivity
     private void putScreenInCallMode(final Set<Media> media) {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (Media.audioOnly(media)) {
-            final JingleRtpConnection rtpConnection =
-                    rtpConnectionReference != null ? rtpConnectionReference.get() : null;
-            final CallIntegration callIntegration =
-                    rtpConnection == null ? null : rtpConnection.getCallIntegration();
+            final CallIntegration callIntegration;
+            try {
+                callIntegration = requireCallIntegration();
+            } catch (final IllegalStateException e) {
+                lockOrientation(media);
+                return;
+            }
             if (callIntegration == null
                     || callIntegration.getSelectedAudioDevice()
                             == CallIntegration.AudioDevice.EARPIECE) {
@@ -620,6 +646,10 @@ public class RtpSessionActivity extends XmppActivity
 
     private void setWith(final RtpEndUserState state, final Contact contact) {
         binding.with.setText(contact.getDisplayName());
+        if (getMujiCallCoordinator() != null) {
+            updateMujiParticipantCount();
+            return;
+        }
         if (Arrays.asList(RtpEndUserState.INCOMING_CALL, RtpEndUserState.ACCEPTING_CALL)
                 .contains(state)) {
             binding.withJid.setText(contact.getAddress().asBareJid().toString());
@@ -627,6 +657,16 @@ public class RtpSessionActivity extends XmppActivity
         } else {
             binding.withJid.setVisibility(View.GONE);
         }
+    }
+
+    private void updateMujiParticipantCount() {
+        final MujiCallCoordinator coordinator = getMujiCallCoordinator();
+        if (coordinator == null) {
+            return;
+        }
+        final int count = coordinator.getActiveParticipantCount();
+        binding.withJid.setText(getResources().getQuantityString(R.plurals.x_participants, count, count));
+        binding.withJid.setVisibility(View.VISIBLE);
     }
 
     @Override
@@ -724,12 +764,18 @@ public class RtpSessionActivity extends XmppActivity
         }
         // TODO apparently this method is not getting called on Android 10 when using the task
         // switcher
-        if (emptyReference(rtpConnectionReference) && xmppConnectionService != null) {
+        if (getMujiCallCoordinator() == null
+                && emptyReference(rtpConnectionReference)
+                && xmppConnectionService != null) {
             retractSessionProposal();
         }
     }
 
     private boolean isConnected() {
+        final MujiCallCoordinator coordinator = getMujiCallCoordinator();
+        if (coordinator != null) {
+            return STATES_CONSIDERED_CONNECTED.contains(coordinator.getAggregateState());
+        }
         final JingleRtpConnection connection =
                 this.rtpConnectionReference != null ? this.rtpConnectionReference.get() : null;
         final RtpEndUserState endUserState =
@@ -788,6 +834,15 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private boolean shouldBePictureInPicture() {
+        final MujiCallCoordinator coordinator = getMujiCallCoordinator();
+        if (coordinator != null) {
+            return coordinator.getMedia().contains(Media.VIDEO)
+                    && Arrays.asList(
+                                    RtpEndUserState.ACCEPTING_CALL,
+                                    RtpEndUserState.CONNECTING,
+                                    RtpEndUserState.CONNECTED)
+                            .contains(coordinator.getAggregateState());
+        }
         try {
             final JingleRtpConnection rtpConnection = requireRtpConnection();
             return rtpConnection.getMedia().contains(Media.VIDEO)
@@ -802,6 +857,11 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private boolean isInConnectedVideoCall() {
+        final MujiCallCoordinator coordinator = getMujiCallCoordinator();
+        if (coordinator != null) {
+            return coordinator.getMedia().contains(Media.VIDEO)
+                    && coordinator.getAggregateState() == RtpEndUserState.CONNECTED;
+        }
         final JingleRtpConnection rtpConnection;
         try {
             rtpConnection = requireRtpConnection();
@@ -815,6 +875,35 @@ public class RtpSessionActivity extends XmppActivity
     private boolean initializeActivityWithRunningRtpSession(
             final Account account, Jid with, String sessionId) {
         final var jingleManager = account.getXmppConnection().getManager(JingleManager.class);
+        final MujiCallCoordinator mujiCallCoordinator =
+                jingleManager.findMujiCallCoordinator(with, sessionId);
+        if (mujiCallCoordinator != null
+                && !mujiCallCoordinator.isEnding()
+                && !mujiCallCoordinator.isFinished()) {
+            this.mujiCallCoordinatorReference = new WeakReference<>(mujiCallCoordinator);
+            final JingleRtpConnection representative =
+                    mujiCallCoordinator.getRepresentativePeerSession();
+            this.rtpConnectionReference =
+                    representative == null ? null : new WeakReference<>(representative);
+            final RtpEndUserState currentState = mujiCallCoordinator.getAggregateState();
+            if (currentState == RtpEndUserState.ENDED) {
+                finish();
+                return true;
+            }
+            final Set<Media> media = mujiCallCoordinator.getMedia();
+            if (STATES_SHOWING_SWITCH_TO_CHAT.contains(currentState)) {
+                putScreenInCallMode(media);
+            }
+            setWidth(currentState);
+            updateVideoViews(currentState);
+            updateStateDisplay(currentState, media, null);
+            updateVerifiedShield(false);
+            updateButtonConfiguration(currentState, media, null);
+            updateIncomingCallScreen(currentState);
+            updateMujiParticipantCount();
+            invalidateOptionsMenu();
+            return false;
+        }
         final WeakReference<JingleRtpConnection> reference =
                 jingleManager.findJingleRtpConnection(with, sessionId);
         if (reference == null || reference.get() == null) {
@@ -1001,6 +1090,10 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private Set<Media> getMedia() {
+        final MujiCallCoordinator coordinator = getMujiCallCoordinator();
+        if (coordinator != null) {
+            return coordinator.getMedia();
+        }
         return requireRtpConnection().getMedia();
     }
 
@@ -1287,6 +1380,17 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private void updateCallDuration() {
+        final MujiCallCoordinator coordinator = getMujiCallCoordinator();
+        if (coordinator != null) {
+            if (coordinator.getMedia().contains(Media.VIDEO) || coordinator.zeroDuration()) {
+                this.binding.duration.setVisibility(View.GONE);
+            } else {
+                this.binding.duration.setText(
+                        TimeFrameUtils.formatElapsedTime(coordinator.getCallDuration(), false));
+                this.binding.duration.setVisibility(View.VISIBLE);
+            }
+            return;
+        }
         final JingleRtpConnection connection =
                 this.rtpConnectionReference != null ? this.rtpConnectionReference.get() : null;
         if (connection == null || connection.getMedia().contains(Media.VIDEO)) {
@@ -1381,6 +1485,14 @@ public class RtpSessionActivity extends XmppActivity
             binding.pipLocalMicOffIndicator.setVisibility(View.GONE);
             return;
         }
+        if (getMujiCallCoordinator() != null && getRepresentativePeerSession() == null) {
+            binding.localVideo.setVisibility(View.GONE);
+            binding.remoteVideoWrapper.setVisibility(View.GONE);
+            binding.pipLocalMicOffIndicator.setVisibility(View.GONE);
+            binding.appBarLayout.setVisibility(View.VISIBLE);
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            return;
+        }
         final Optional<VideoTrack> localVideoTrack = getLocalVideoTrack();
         if (localVideoTrack.isPresent() && !isPictureInPicture()) {
             ensureSurfaceViewRendererIsSetup(binding.localVideo);
@@ -1435,6 +1547,12 @@ public class RtpSessionActivity extends XmppActivity
             return Optional.absent();
         }
         return connection.getRemoteVideoTrack();
+    }
+
+    @Nullable
+    private JingleRtpConnection getRepresentativePeerSession() {
+        final MujiCallCoordinator coordinator = getMujiCallCoordinator();
+        return coordinator == null ? null : coordinator.getRepresentativePeerSession();
     }
 
     private void disableMicrophone(final View view) {
@@ -1509,14 +1627,27 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private Contact getWith() {
+        final MujiCallCoordinator coordinator = getMujiCallCoordinator();
+        if (coordinator != null) {
+            return coordinator.getConversation().getContact();
+        }
         final AbstractJingleConnection.Id id = requireRtpConnection().getId();
         final Account account = id.account;
         return account.getRoster().getContact(id.with);
     }
 
     private JingleRtpConnection requireRtpConnection() {
-        final JingleRtpConnection connection =
+        JingleRtpConnection connection =
                 this.rtpConnectionReference != null ? this.rtpConnectionReference.get() : null;
+        if (connection == null) {
+            final MujiCallCoordinator coordinator = getMujiCallCoordinator();
+            if (coordinator != null) {
+                connection = coordinator.getRepresentativePeerSession();
+                if (connection != null) {
+                    this.rtpConnectionReference = new WeakReference<>(connection);
+                }
+            }
+        }
         if (connection == null) {
             throw new IllegalStateException("No RTP connection found");
         }
@@ -1528,6 +1659,10 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     private OngoingRtpSession requireOngoingRtpSession() {
+        final MujiCallCoordinator coordinator = getMujiCallCoordinator();
+        if (coordinator != null) {
+            return coordinator;
+        }
         final JingleRtpConnection connection =
                 this.rtpConnectionReference != null ? this.rtpConnectionReference.get() : null;
         if (connection != null) {
@@ -1548,10 +1683,19 @@ public class RtpSessionActivity extends XmppActivity
         throw new IllegalStateException("No matching session proposal");
     }
 
+    @Nullable
+    private MujiCallCoordinator getMujiCallCoordinator() {
+        return mujiCallCoordinatorReference == null ? null : mujiCallCoordinatorReference.get();
+    }
+
     @Override
     public void onJingleRtpConnectionUpdate(
             Account account, Jid with, final String sessionId, RtpEndUserState state) {
         Log.d(Config.LOGTAG, "onJingleRtpConnectionUpdate(" + state + ")");
+        if (getMujiCallCoordinator() != null) {
+            // MUJI peer sessions are rendered through the room's aggregate update below.
+            return;
+        }
         if (END_CARD.contains(state)) {
             Log.d(Config.LOGTAG, "end card reached");
             releaseProximityWakeLock();
@@ -1607,6 +1751,52 @@ public class RtpSessionActivity extends XmppActivity
     }
 
     @Override
+    public void onMujiCallUpdate(
+            final Account account,
+            final Jid room,
+            final String sessionId,
+            final Map<Jid, RtpEndUserState> participants,
+            final RtpEndUserState aggregateState) {
+        final Intent intent = getIntent();
+        final String with = intent == null ? null : intent.getStringExtra(EXTRA_WITH);
+        if (intent == null
+                || with == null
+                || !sessionId.equals(intent.getStringExtra(EXTRA_SESSION_ID))
+                || !room.equals(Jid.of(with).asBareJid())) {
+            return;
+        }
+        final JingleManager jingleManager =
+                account.getXmppConnection().getManager(JingleManager.class);
+        final MujiCallCoordinator coordinator =
+                jingleManager.findMujiCallCoordinator(room, sessionId);
+        if (coordinator == null) {
+            return;
+        }
+        this.mujiCallCoordinatorReference = new WeakReference<>(coordinator);
+        final JingleRtpConnection representative = coordinator.getRepresentativePeerSession();
+        this.rtpConnectionReference =
+                representative == null ? null : new WeakReference<>(representative);
+        runOnUiThread(
+                () -> {
+                    if (aggregateState == RtpEndUserState.ENDED && coordinator.isEnding()) {
+                        finish();
+                        return;
+                    }
+                    final Set<Media> media = coordinator.getMedia();
+                    updateMujiParticipantCount();
+                    updateStateDisplay(aggregateState, media, null);
+                    updateButtonConfiguration(aggregateState, media, null);
+                    updateVideoViews(aggregateState);
+                    updateIncomingCallScreen(aggregateState);
+                    invalidateOptionsMenu();
+                    if (STATES_SHOWING_SWITCH_TO_CHAT.contains(aggregateState)) {
+                        putScreenInCallMode(media);
+                    }
+                    updateCallDuration();
+                });
+    }
+
+    @Override
     public void onAudioDeviceChanged(
             final CallIntegration.AudioDevice selectedAudioDevice,
             final Set<CallIntegration.AudioDevice> availableAudioDevices) {
@@ -1621,6 +1811,8 @@ public class RtpSessionActivity extends XmppActivity
             final RtpEndUserState endUserState;
             if (ongoingRtpSession instanceof JingleRtpConnection jingleRtpConnection) {
                 endUserState = jingleRtpConnection.getEndUserState();
+            } else if (ongoingRtpSession instanceof MujiCallCoordinator coordinator) {
+                endUserState = coordinator.getAggregateState();
             } else {
                 // for session proposals all end user states are functionally the same
                 endUserState = RtpEndUserState.RINGING;

@@ -116,6 +116,7 @@ import eu.siacs.conversations.xmpp.forms.Data;
 import eu.siacs.conversations.xmpp.jingle.AbstractJingleConnection;
 import eu.siacs.conversations.xmpp.jingle.JingleRtpConnection;
 import eu.siacs.conversations.xmpp.jingle.Media;
+import eu.siacs.conversations.xmpp.jingle.OngoingRtpSession;
 import eu.siacs.conversations.xmpp.jingle.RtpEndUserState;
 import eu.siacs.conversations.xmpp.mam.MamReference;
 import eu.siacs.conversations.xmpp.manager.ActivityManager;
@@ -730,6 +731,18 @@ public class XmppConnectionService extends Service {
         for (final var account : this.accounts) {
             final var jingleManager = account.getXmppConnection().getManager(JingleManager.class);
             final var ongoing = jingleManager.getOngoingRtpConnection();
+            if (ongoing != null) {
+                return ongoing;
+            }
+        }
+        return null;
+    }
+
+    @Nullable
+    public OngoingRtpSession getOngoingRtpSession() {
+        for (final var account : this.accounts) {
+            final var jingleManager = account.getXmppConnection().getManager(JingleManager.class);
+            final OngoingRtpSession ongoing = jingleManager.getOngoingRtpSession();
             if (ongoing != null) {
                 return ongoing;
             }
@@ -3494,6 +3507,18 @@ public class XmppConnectionService extends Service {
         }
     }
 
+    public void notifyMujiCallUpdate(
+            final Account account,
+            final Jid room,
+            final String sessionId,
+            final Map<Jid, RtpEndUserState> participants,
+            final RtpEndUserState aggregateState) {
+        for (final OnJingleRtpConnectionUpdate listener :
+                threadSafeList(this.onJingleRtpConnectionUpdate)) {
+            listener.onMujiCallUpdate(account, room, sessionId, participants, aggregateState);
+        }
+    }
+
     public void updateAccountUi() {
         for (final OnAccountUpdate listener : threadSafeList(this.mOnAccountUpdates)) {
             listener.onAccountUpdate();
@@ -4032,6 +4057,13 @@ public class XmppConnectionService extends Service {
         void onAudioDeviceChanged(
                 CallIntegration.AudioDevice selectedAudioDevice,
                 Set<CallIntegration.AudioDevice> availableAudioDevices);
+
+        default void onMujiCallUpdate(
+                final Account account,
+                final Jid room,
+                final String sessionId,
+                final Map<Jid, RtpEndUserState> participants,
+                final RtpEndUserState aggregateState) {}
     }
 
     public interface OnAccountUpdate {
