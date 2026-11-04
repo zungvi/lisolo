@@ -1,0 +1,70 @@
+# Product TODO
+
+## 1. Make XMPP easier for newcomers
+
+- [x] Use the XMPP Providers project's curated A/B directory and show registration route, compliance score, file limit, history retention, locations, and whether the service is free.
+- [x] Add a searchable provider picker with paths for in-app signup, website signup, existing accounts, and a custom XMPP domain.
+- [x] After sign-in, inspect server and account capabilities and show a simple status for OMEMO key publishing, history, uploads, and background notifications.
+- [x] Surface the feature check in plain language on the connected account screen while keeping the XEP-level diagnostics available separately.
+- [x] Explain that call availability also depends on the other person's app and the network.
+- [x] Explain in the picker that OMEMO, history, upload, and push support are checked after sign-in, and that calls also depend on the other person's client and network.
+- [x] Use cached provider data when offline, show the lookup error when no cached list exists, and keep custom-domain setup available in either case.
+- [x] Explain that the public provider list is downloaded and search filtering happens on-device; never send the search query to the directory.
+
+## 2. Improve group conversations
+
+### Group calls
+
+- [x] Assess XEP-0272 (MUJI) support and compatibility across active XMPP servers and clients; record interoperability requirements before implementation.
+- [x] Design group call flows for starting, joining, leaving, reconnecting, and handling participant or permission changes.
+- [ ] Implement a room-level call coordinator that owns multiple peer sessions and presents one group call to the user; keep the existing one-to-one call and Telecom flows intact.
+- [x] Add typed MUJI stanza support and retain each MUC participant's current/preparing MUJI state.
+- [ ] Send the MUJI preparation presence, wait for MUC reflection and peer preparation, then advertise negotiated content with profile capability checks.
+- [ ] Define one compatible RTP payload-type map for every peer in a room call; the current one-to-one SDP negotiations cannot be assumed to produce MUJI's room-wide codec mapping.
+- [ ] Bound the first MUJI release to small rooms and show a clear limit before call start; mesh call load grows with every participant pair.
+- [ ] Keep server-hosted SFU calls as a separate integration: Movim Galener is an XEP-0114 component that requires a deployed Galener/Galène service, not an XEP-0272-only server setting.
+- [ ] Implement group voice and video calls with clear capability checks and graceful fallback when a room or participant cannot use them.
+- [ ] Verify interoperability with a documented server/client matrix, including call setup, reconnect, and media permission cases.
+
+#### Group-call assessment and design (2026-11-04)
+
+- **Protocol maturity:** [XEP-0272 (MUJI)](https://xmpp.org/extensions/xep-0272.html) is version 0.2.0 and Experimental. It coordinates multiparty calls inside MUC; it is not a stable, broadly deployed baseline. [XEP-0482 (Call Invites)](https://xmpp.org/extensions/xep-0482.html) is also Experimental and is an optional invitation path, not a prerequisite for every MUJI call flow.
+- **How the call works:** participants publish audio/video content and a shared room-wide payload-type mapping in room presence, synchronize a preparing/joining phase, then establish one Jingle RTP session with each other participant. Payload IDs and codec parameters must be consistent across the room; independent per-peer SDP negotiation cannot be assumed to satisfy this. Leaving requires removing MUJI presence before closing that participant’s Jingle sessions. This means Lisolo needs a room-level call coordinator that owns multiple peer sessions; the existing call UI and manager model a single peer, and `JingleManager` currently rejects another RTP session while one is active.
+- **Server requirements:** no MUJI-specific server module is defined. Servers must provide working XEP-0045 MUC presence reflection and ordinary XMPP routing for the pairwise Jingle signaling. Media still needs working ICE connectivity; test direct UDP and TURN-assisted paths. Treat MUC capability as necessary, but do not label a server “MUJI-compatible” based on server discovery alone because MUJI support is a client capability.
+- **Privacy constraint:** MUJI’s Jingle sessions address participants by real JID, while a semi-anonymous MUC intentionally hides real JIDs from ordinary occupants. Never silently change an existing room’s anonymity. Before starting, disclose any real-JID exposure; prefer a dedicated private call room with an explicit consent flow, and gracefully decline setup when compatible routing cannot be provided.
+- **Client landscape:** Movim 0.30 (released April 2025) reported interoperation with Dino using MUJI and Call Invites. [Movim 0.34 (June 2026) redesigned its flow, removed XEP-0482, and explicitly notes that the change breaks compatibility with Dino](https://mov.im/community/pubsub.movim.eu/Movim). [Movim 0.35 (September 2026) introduced Galener](https://mov.im/community/pubsub.movim.eu/Movim/456123c0-78eb-4353-9560-79aba7eb4681), a server-side SFU exposed through a dedicated XEP-0114 component; this is a different call topology and requires server deployment. An active [Monocles/DinoX Android branch](https://git.dinox.im/dinoxim/monocles-chat) also advertises MUJI, but its project notes say some physical-device call testing remains pending. This Lisolo checkout declares group calls unsupported and has no MUJI implementation. Treat XEP-0272 and XEP-0482 as opt-in capabilities and validate exact client versions and call-flow profiles; one-to-one Jingle support alone does not mean group-call support.
+- **First implementation scope:** target the XEP-0272 mesh profile in small rooms, with XEP-0482 invitations only where that profile is supported. Do not imply compatibility with Movim's room-native profile or Galener unless tested. The room call must own its peer Jingle sessions as one user-facing call; it cannot reuse the existing per-peer Telecom call surface unchanged.
+- **Start:** initiate from a group chat; confirm the room and invitees can be reached; disclose the call-room privacy model; request microphone/camera permissions and offer audio-only when camera access is denied. Keep non-compatible participants in text chat and explain that their client cannot join. Implement one documented MUJI profile first, and keep profile-specific room setup and invitations explicit.
+- **Join and change media:** use an explicit call invitation where XEP-0482 is supported; where a tested profile negotiates in the existing room, use its documented join action. Send the MUJI preparing presence, wait for its reflection and other participants’ preparation, agree the shared media/codecs, then establish peer sessions. Adding or removing audio/video content must update MUJI presence and matching peer sessions; mute and camera state must be reflected consistently across the aggregate call.
+- **Leave and membership changes:** update presence to leave before closing peer sessions. On kick, ban, or removal from the call room, stop that peer’s media and tear down its session. Keep the call active for remaining participants; show failed or unsupported participants without dropping the whole call.
+- **Reconnect and end:** on network loss, mark the affected peer as reconnecting, remove stale Jingle state, rejoin the room and negotiate again. Support late joiners through the same preparation and codec agreement. Ending the call removes MUJI presence, closes all peer sessions, releases capture/audio resources, and clears the call room when permitted.
+- **Interoperability targets:**
+
+  | Client / server path | Assessment or test role |
+  | --- | --- |
+  | Lisolo Android ↔ Dino desktop | Cross-platform MUJI target; pin Dino version and call profile, test setup, audio/video, late join, leave |
+  | Lisolo Android ↔ Movim 0.34 web | Separate room-native MUJI profile; test independently and document the known profile difference from Dino |
+  | Lisolo Android ↔ Movim 0.35 Galener | Separate SFU integration target; requires Galener service discovery/configuration and is outside the first MUJI mesh scope |
+  | Movim 0.30 ↔ Dino | Historical positive reference reported by Movim; compare with 0.34 to catch profile divergence |
+  | Lisolo Android ↔ Monocles/DinoX Android | Android peer implementation; pin exact build and verify physical-device behavior |
+  | Lisolo ↔ client without MUJI | Negative control; hide or disable call join and preserve text chat |
+  | Snikket/Prosody, ejabberd, Openfire MUC | Verify reflected MUJI presence, room membership events, peer Jingle routing, and anonymity behavior |
+  | Wi-Fi, mobile data, restrictive NAT with TURN | Verify ICE negotiation, relay fallback, reconnect, and media permissions |
+
+- **Acceptance cases:** cover host start, invitation, join, late join, participant leave, host end, kick/ban, camera or microphone denied, audio-only, network handoff, process recreation, no common codec, unavailable TURN, and anonymous-room privacy refusal. Start with small rooms; MUJI’s peer mesh adds a Jingle session for every participant pair, and the XEP calls for relays or mixers as group size grows.
+
+### Message expiry, live location, and abuse reporting
+
+- [ ] Define message expiry behavior, including whether expiry is local or synchronized, how it is displayed, and what happens to archived copies.
+- [ ] Implement live location sharing with explicit duration, visible sharing status, and a clear stop-sharing action; request background location only when needed.
+- [ ] Add in-app abuse reporting for direct chats and group chats, including the report details sent and confirmation to the user.
+- [ ] Implement and advertise XEP-0377 reporting where supported, with a clear fallback when the server does not support it.
+
+## 3. Close everyday privacy gaps
+
+- [ ] Define the at-rest protection goal and choose whether to implement local database encryption, an app lock, or both.
+- [ ] Design key storage and recovery around Android Keystore and device credentials; document what happens if a key is lost or the device is migrated.
+- [ ] Encrypt sensitive local records, including chat history and encryption keys, if database encryption is selected.
+- [ ] Add an app lock using device credentials or biometrics if selected, with lock timing and app-switcher privacy controls.
+- [ ] Preserve backup and restore behavior, and define safe database migration, logout, and local-data deletion flows.
+- [ ] Document exactly what local encryption and app lock protect, including any limits such as data visible while the app is unlocked.
