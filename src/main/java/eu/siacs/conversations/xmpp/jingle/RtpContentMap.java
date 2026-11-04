@@ -21,6 +21,7 @@ import eu.siacs.conversations.xmpp.jingle.stanzas.IceUdpTransportInfo;
 import eu.siacs.conversations.xmpp.jingle.stanzas.OmemoVerifiedIceUdpTransportInfo;
 import eu.siacs.conversations.xmpp.jingle.stanzas.RtpDescription;
 import im.conversations.android.xmpp.model.jingle.Jingle;
+import im.conversations.android.xmpp.model.jingle.Muji;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -89,6 +90,21 @@ public class RtpContentMap extends AbstractContentMap<RtpDescription, IceUdpTran
                                     ? Media.UNKNOWN
                                     : input.description.getMedia();
                         }));
+    }
+
+    /** Create a MUJI presence announcement from this map's RTP descriptions. */
+    public Muji toMujiAnnouncement() {
+        final Muji muji = new Muji();
+        for (final Map.Entry<String, DescriptionTransport<RtpDescription, IceUdpTransportInfo>>
+                entry : contents.entrySet()) {
+            final RtpDescription description = entry.getValue().description;
+            Preconditions.checkNotNull(
+                    description,
+                    "RTP content map is lacking a description for " + entry.getKey());
+            muji.addContent(
+                    Content.Creator.INITIATOR.toString(), entry.getKey(), description);
+        }
+        return muji;
     }
 
     void requireDTLSFingerprint() {

@@ -30,6 +30,8 @@ import eu.siacs.conversations.utils.XmppUri;
 import eu.siacs.conversations.xml.Namespace;
 import eu.siacs.conversations.xmpp.Jid;
 import eu.siacs.conversations.xmpp.XmppConnection;
+import eu.siacs.conversations.xmpp.jingle.MujiCodecCompatibility;
+import eu.siacs.conversations.xmpp.jingle.RtpContentMap;
 import im.conversations.android.model.ImmutableBookmark;
 import im.conversations.android.xmpp.Entity;
 import im.conversations.android.xmpp.EntityCapabilities;
@@ -62,6 +64,7 @@ import im.conversations.android.xmpp.model.stanza.Message;
 import im.conversations.android.xmpp.model.stanza.Presence;
 import im.conversations.android.xmpp.model.stanza.Stanza;
 import im.conversations.android.xmpp.model.vcard.update.VCardUpdate;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -71,6 +74,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.jspecify.annotations.NonNull;
 
@@ -78,12 +83,15 @@ public class MultiUserChatManager extends AbstractManager {
 
     private static final Collection<String> VOLATILE_ROOM_INFO =
             Collections.singleton("muc#roominfo_occupants");
+    private static final long MUJI_PREPARATION_TIMEOUT_SECONDS = 30;
 
     private final XmppConnectionService service;
 
     private final Set<Conversation> inProgressConferenceJoins = new HashSet<>();
     private final Set<Conversation> inProgressConferencePings = new HashSet<>();
     private final HashMap<Jid, MucOptions> states = new HashMap<>();
+    private final HashMap<Jid, PendingMujiPreparation> pendingMujiPreparations =
+            new HashMap<>();
 
     public MultiUserChatManager(final XmppConnectionService service, XmppConnection connection) {
         super(service.getApplicationContext(), connection);
@@ -183,6 +191,9 @@ public class MultiUserChatManager extends AbstractManager {
     }
 
     private void resetState(final Conversation conversation) {
+        failMujiPreparation(
+                conversation.getAddress().asBareJid(),
+                new IllegalStateException("MUC state was reset during MUJI preparation"));
         synchronized (this.states) {
             this.states.remove(conversation.getAddress().asBareJid());
         }
@@ -358,6 +369,205 @@ public class MultiUserChatManager extends AbstractManager {
         unavailable(conversation);
     }
 
+    /**
+     * Publish MUJI preparing presence and complete after the room reflects it and all other
+     * currently preparing participants have finished their preparation.
+     */
+    public ListenableFuture<Void> prepareMuji(final Conversation conversation) {
+        final Jid room = conversation.getAddress().asBareJid();
+        final MucOptions options = getState(room);
+        if (options == null || !options.online()) {
+            return Futures.immediateFailedFuture(
+                    new IllegalStateException("Must be joined to the MUC before preparing MUJI"));
+        }
+        final MucOptions.Self self = options.getSelf();
+        if (self == null) {
+            return Futures.immediateFailedFuture(
+                    new IllegalStateException("MUC self presence is not available"));
+        }
+        if (self.isInMujiCall()) {
+            return Futures.immediateFailedFuture(
+                    new IllegalStateException("Already participating in a MUJI call"));
+        }
+
+        final PendingMujiPreparation pending = new PendingMujiPreparation();
+        synchronized (this.pendingMujiPreparations) {
+            final PendingMujiPreparation existing = this.pendingMujiPreparations.get(room);
+            if (existing != null && !existing.future.isDone()) {
+                return Futures.immediateFailedFuture(
+                        new IllegalStateException("MUJI preparation is already in progress"));
+            }
+            this.pendingMujiPreparations.put(room, pending);
+        }
+        pending.future.addListener(
+                () -> removePendingMujiPreparation(room, pending),
+                MoreExecutors.directExecutor());
+        final ScheduledFuture<?> timeout =
+                JingleManager.schedule(
+                        () ->
+                                finishMujiPreparation(
+                                        room,
+                                        pending,
+                                        new TimeoutException(
+                                                "Timed out waiting for MUJI preparation")),
+                        MUJI_PREPARATION_TIMEOUT_SECONDS,
+                        TimeUnit.SECONDS);
+        synchronized (this.pendingMujiPreparations) {
+            if (this.pendingMujiPreparations.get(room) == pending) {
+                pending.timeout = timeout;
+            } else {
+                timeout.cancel(false);
+            }
+        }
+        try {
+            publishMujiPresence(conversation, Muji.preparing());
+        } catch (final RuntimeException e) {
+            finishMujiPreparation(room, pending, e);
+        }
+        return pending.future;
+    }
+
+    /** Publish an updated MUJI presence, or remove MUJI state when {@code muji} is null. */
+    public void publishMujiPresence(
+            final Conversation conversation, @Nullable final Muji muji) {
+        final MucOptions options = getState(conversation.getAddress().asBareJid());
+        if (options == null || !options.online()) {
+            throw new IllegalStateException("Must be joined to the MUC to publish MUJI presence");
+        }
+        final MucOptions.Self self = options.getSelf();
+        if (self == null || self.getFullJid() == null) {
+            throw new IllegalStateException("MUC self presence is not available");
+        }
+        if (muji == null) {
+            available(self.getFullJid(), options.nonanonymous());
+        } else {
+            available(self.getFullJid(), options.nonanonymous(), muji);
+        }
+    }
+
+    /**
+     * Inspect the proposed local media against participants that have opted into MUJI in this
+     * room. Occupants without MUJI presence are not treated as call participants.
+     */
+    public MujiCodecCompatibility.Result inspectMujiCodecCompatibility(
+            final Conversation conversation, final Muji proposedMedia) {
+        final MucOptions options = getState(conversation.getAddress().asBareJid());
+        if (options == null || !options.online()) {
+            return new MujiCodecCompatibility.Result(
+                    false,
+                    Collections.emptyMap(),
+                    ImmutableList.of("Must be joined to the MUC before checking MUJI media"));
+        }
+        final List<Muji> announcements = new ArrayList<>();
+        announcements.add(proposedMedia);
+        for (final MucOptions.User user : options.getUsers()) {
+            final Muji muji = user.getMuji();
+            if (user.resource() != null && muji != null) {
+                announcements.add(muji);
+            }
+        }
+        return MujiCodecCompatibility.inspect(announcements);
+    }
+
+    /** Convert a local RTP map to MUJI form before checking it against the room. */
+    public MujiCodecCompatibility.Result inspectMujiCodecCompatibility(
+            final Conversation conversation, final RtpContentMap proposedMedia) {
+        return inspectMujiCodecCompatibility(conversation, proposedMedia.toMujiAnnouncement());
+    }
+
+    private void removePendingMujiPreparation(
+            final Jid room, final PendingMujiPreparation pending) {
+        final ScheduledFuture<?> timeout;
+        synchronized (this.pendingMujiPreparations) {
+            if (this.pendingMujiPreparations.get(room) == pending) {
+                this.pendingMujiPreparations.remove(room);
+            }
+            timeout = pending.timeout;
+        }
+        if (timeout != null) {
+            timeout.cancel(false);
+        }
+        if (pending.future.isCancelled()) {
+            clearPreparingMujiPresence(room);
+        }
+    }
+
+    private void finishMujiPreparation(
+            final Jid room,
+            final PendingMujiPreparation pending,
+            @Nullable final Exception failure) {
+        synchronized (this.pendingMujiPreparations) {
+            if (this.pendingMujiPreparations.get(room) != pending) {
+                return;
+            }
+            this.pendingMujiPreparations.remove(room);
+        }
+        if (failure == null) {
+            pending.future.set(null);
+        } else {
+            clearPreparingMujiPresence(room);
+            pending.future.setException(failure);
+        }
+    }
+
+    private void clearPreparingMujiPresence(final Jid room) {
+        final MucOptions options = getState(room);
+        if (options == null || !options.online()) {
+            return;
+        }
+        final MucOptions.Self self = options.getSelf();
+        if (self == null || !self.isPreparingMujiCall()) {
+            return;
+        }
+        try {
+            publishMujiPresence(options.getConversation(), null);
+        } catch (final RuntimeException e) {
+            Log.d(Config.LOGTAG, "could not clear MUJI preparing presence", e);
+        }
+    }
+
+    private void failMujiPreparation(final Jid room, final Exception failure) {
+        final PendingMujiPreparation pending;
+        synchronized (this.pendingMujiPreparations) {
+            pending = this.pendingMujiPreparations.get(room);
+        }
+        if (pending != null) {
+            finishMujiPreparation(room, pending, failure);
+        }
+    }
+
+    private void updateMujiPreparation(final MucOptions options) {
+        final Jid room = options.getConversation().getAddress().asBareJid();
+        final PendingMujiPreparation pending;
+        synchronized (this.pendingMujiPreparations) {
+            pending = this.pendingMujiPreparations.get(room);
+        }
+        if (pending == null) {
+            return;
+        }
+        if (!options.online()) {
+            finishMujiPreparation(
+                    room, pending, new IllegalStateException("MUC connection was lost"));
+            return;
+        }
+        final MucOptions.Self self = options.getSelf();
+        if (self == null || !self.isPreparingMujiCall()) {
+            return;
+        }
+        final boolean anotherParticipantIsPreparing =
+                options.getUsers().stream()
+                        .filter(user -> user.resource() != null)
+                        .anyMatch(MucOptions.User::isPreparingMujiCall);
+        if (!anotherParticipantIsPreparing) {
+            finishMujiPreparation(room, pending, null);
+        }
+    }
+
+    private static final class PendingMujiPreparation {
+        private final SettableFuture<Void> future = SettableFuture.create();
+        @Nullable private ScheduledFuture<?> timeout;
+    }
+
     public void handlePresence(final Presence presence) {
         final var type = presence.getType();
         final var from = presence.getFrom();
@@ -382,6 +592,7 @@ public class MultiUserChatManager extends AbstractManager {
         } else {
             throw new AssertionError("presences of this type should not be routed here");
         }
+        updateMujiPreparation(mucOptions);
         final var tileUserAfter =
                 isGeneratedAvatar ? mucOptions.getUsersPreview(5) : Collections.emptyList();
         if (isGeneratedAvatar && !tileUserAfter.equals(tileUserBefore)) {
@@ -934,7 +1145,16 @@ public class MultiUserChatManager extends AbstractManager {
     public void resendPresence(final Conversation conversation) {
         final MucOptions mucOptions = getOrCreateState(conversation);
         if (mucOptions.online()) {
-            available(mucOptions.getSelf().getFullJid(), mucOptions.nonanonymous());
+            final MucOptions.Self self = mucOptions.getSelf();
+            if (self == null) {
+                return;
+            }
+            final Muji muji = self.getMuji();
+            if (muji == null) {
+                available(self.getFullJid(), mucOptions.nonanonymous());
+            } else {
+                available(self.getFullJid(), mucOptions.nonanonymous(), muji);
+            }
         }
     }
 

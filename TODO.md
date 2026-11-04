@@ -19,8 +19,9 @@
 - [x] Design group call flows for starting, joining, leaving, reconnecting, and handling participant or permission changes.
 - [ ] Implement a room-level call coordinator that owns multiple peer sessions and presents one group call to the user; keep the existing one-to-one call and Telecom flows intact.
 - [x] Add typed MUJI stanza support and retain each MUC participant's current/preparing MUJI state.
-- [ ] Send the MUJI preparation presence, wait for MUC reflection and peer preparation, then advertise negotiated content with profile capability checks.
-- [ ] Define one compatible RTP payload-type map for every peer in a room call; the current one-to-one SDP negotiations cannot be assumed to produce MUJI's room-wide codec mapping.
+- [x] Send MUJI preparing presence and wait for the reflected self presence and other in-room participants to finish preparing, with timeout and MUC-loss failure handling.
+- [x] Parse and build typed MUJI RTP content descriptions; convert existing RTP content maps into MUJI presence announcements and inspect active participants' advertised maps for payload ID, codec, clock-rate, channel, and parameter consistency.
+- [ ] Generate a room-wide WebRTC payload map, publish final MUJI media content, and apply the same mapping to every peer Jingle session.
 - [ ] Bound the first MUJI release to small rooms and show a clear limit before call start; mesh call load grows with every participant pair.
 - [ ] Keep server-hosted SFU calls as a separate integration: Movim Galener is an XEP-0114 component that requires a deployed Galener/Galène service, not an XEP-0272-only server setting.
 - [ ] Implement group voice and video calls with clear capability checks and graceful fallback when a room or participant cannot use them.
