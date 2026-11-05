@@ -9,6 +9,7 @@ public final class Namespace {
     public static final String AXOLOTL_BUNDLES = AXOLOTL + ".bundles";
     public static final String AXOLOTL_DEVICE_LIST = AXOLOTL + ".devicelist";
     public static final String HINTS = "urn:xmpp:hints";
+    public static final String EPHEMERAL = "urn:xmpp:ephemeral:0";
     public static final String MESSAGE_ARCHIVE_MANAGEMENT = "urn:xmpp:mam:2";
     public static final String VERSION = "jabber:iq:version";
     public static final String LAST_MESSAGE_CORRECTION = "urn:xmpp:message-correct:0";

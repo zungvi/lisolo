@@ -69,7 +69,7 @@ import org.whispersystems.libsignal.state.SignedPreKeyRecord;
 public class DatabaseBackend extends SQLiteOpenHelper {
 
     private static final String DATABASE_NAME = "history";
-    private static final int DATABASE_VERSION = 55;
+    private static final int DATABASE_VERSION = 56;
 
     private static boolean requiresMessageIndexRebuild = false;
     private static DatabaseBackend instance = null;
@@ -486,6 +486,12 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                         + " TEXT,"
                         + Message.REPLY_PREVIEW
                         + " TEXT,"
+                        + Message.EPHEMERAL_TIMER
+                        + " NUMBER DEFAULT 0,"
+                        + Message.EPHEMERAL_START_TIME
+                        + " NUMBER DEFAULT 0,"
+                        + Message.EPHEMERAL_EXPIRED
+                        + " NUMBER DEFAULT 0,"
                         + Message.REACTIONS
                         + " TEXT,"
                         + Message.REMOTE_MSG_ID
@@ -1103,6 +1109,26 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                             + " ADD COLUMN "
                             + Message.REPLY_PREVIEW
                             + " TEXT");
+        }
+        if (oldVersion < 56 && newVersion >= 56) {
+            db.execSQL(
+                    "ALTER TABLE "
+                            + Message.TABLENAME
+                            + " ADD COLUMN "
+                            + Message.EPHEMERAL_TIMER
+                            + " NUMBER DEFAULT 0");
+            db.execSQL(
+                    "ALTER TABLE "
+                            + Message.TABLENAME
+                            + " ADD COLUMN "
+                            + Message.EPHEMERAL_START_TIME
+                            + " NUMBER DEFAULT 0");
+            db.execSQL(
+                    "ALTER TABLE "
+                            + Message.TABLENAME
+                            + " ADD COLUMN "
+                            + Message.EPHEMERAL_EXPIRED
+                            + " NUMBER DEFAULT 0");
         }
     }
 

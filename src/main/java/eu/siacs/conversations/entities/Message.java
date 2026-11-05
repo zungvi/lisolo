@@ -87,6 +87,9 @@ public class Message extends AbstractEntity
     public static final String REPLY_TO = "replyTo";
     public static final String REPLY_ID = "replyId";
     public static final String REPLY_PREVIEW = "replyPreview";
+    public static final String EPHEMERAL_TIMER = "ephemeralTimer";
+    public static final String EPHEMERAL_START_TIME = "ephemeralStartTime";
+    public static final String EPHEMERAL_EXPIRED = "ephemeralExpired";
     public static final String ME_COMMAND = "/me ";
 
     public static final String ERROR_MESSAGE_CANCELLED = "eu.siacs.conversations.cancelled";
@@ -123,6 +126,9 @@ public class Message extends AbstractEntity
     private String replyTo;
     private String replyId;
     private String replyPreview;
+    private long ephemeralTimer;
+    private long ephemeralStartTime;
+    private boolean ephemeralExpired;
 
     private Boolean isGeoUri = null;
     private Boolean isEmojisOnly = null;
@@ -266,7 +272,7 @@ public class Message extends AbstractEntity
     }
 
     public static Message fromCursor(final Cursor cursor, final Conversation conversation) {
-        return new Message(
+        final Message message = new Message(
                 conversation,
                 cursor.getString(cursor.getColumnIndexOrThrow(UUID)),
                 cursor.getString(cursor.getColumnIndexOrThrow(CONVERSATION)),
@@ -296,6 +302,12 @@ public class Message extends AbstractEntity
                 cursor.getString(cursor.getColumnIndexOrThrow(REPLY_ID)),
                 cursor.getString(cursor.getColumnIndexOrThrow(REPLY_PREVIEW)),
                 Reaction.fromString(cursor.getString(cursor.getColumnIndexOrThrow(REACTIONS))));
+        message.ephemeralTimer = cursor.getLong(cursor.getColumnIndexOrThrow(EPHEMERAL_TIMER));
+        message.ephemeralStartTime =
+                cursor.getLong(cursor.getColumnIndexOrThrow(EPHEMERAL_START_TIME));
+        message.ephemeralExpired =
+                cursor.getInt(cursor.getColumnIndexOrThrow(EPHEMERAL_EXPIRED)) > 0;
+        return message;
     }
 
     private static Jid fromString(String value) {
@@ -369,6 +381,9 @@ public class Message extends AbstractEntity
         values.put(REPLY_TO, replyTo);
         values.put(REPLY_ID, replyId);
         values.put(REPLY_PREVIEW, replyPreview);
+        values.put(EPHEMERAL_TIMER, ephemeralTimer);
+        values.put(EPHEMERAL_START_TIME, ephemeralStartTime);
+        values.put(EPHEMERAL_EXPIRED, ephemeralExpired ? 1 : 0);
         values.put(REACTIONS, Reaction.toString(this.reactions));
         return values;
     }
@@ -499,6 +514,33 @@ public class Message extends AbstractEntity
 
     public boolean isRead() {
         return this.read;
+    }
+
+    /** Returns the XEP-0466 timer in seconds, or zero when the message does not expire. */
+    public long getEphemeralTimer() {
+        return ephemeralTimer;
+    }
+
+    public void setEphemeralTimer(final long seconds) {
+        Preconditions.checkArgument(seconds >= 0, "ephemeral timer must not be negative");
+        this.ephemeralTimer = seconds;
+    }
+
+    /** Returns the local timestamp when this device started the expiry countdown. */
+    public long getEphemeralStartTime() {
+        return ephemeralStartTime;
+    }
+
+    public void setEphemeralStartTime(final long timestamp) {
+        this.ephemeralStartTime = timestamp;
+    }
+
+    public boolean isEphemeralExpired() {
+        return ephemeralExpired;
+    }
+
+    public void setEphemeralExpired(final boolean expired) {
+        this.ephemeralExpired = expired;
     }
 
     public boolean isDeleted() {
