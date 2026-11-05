@@ -1411,14 +1411,21 @@ public class XmppConnectionService extends Service {
                         return;
                     }
                     for (final var expired : expiredMessages) {
-                        fileBackend.deleteEphemeralFiles(
-                                expired.uuid(), expired.relativeFilePath(), expired.encryption());
+                        final boolean filesDeleted =
+                                fileBackend.deleteEphemeralFiles(
+                                        expired.uuid(), expired.relativeFilePath());
+                        if (filesDeleted) {
+                            databaseBackend.clearEphemeralFilePath(expired.uuid());
+                        }
                         final Conversation conversation =
                                 findConversationByUuid(expired.conversationUuid());
                         if (conversation != null) {
                             final Message message = conversation.findMessageWithUuid(expired.uuid());
                             if (message != null) {
                                 message.expireEphemeral(marker);
+                                if (filesDeleted) {
+                                    message.setRelativeFilePath(null);
+                                }
                             }
                         }
                     }

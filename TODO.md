@@ -69,6 +69,8 @@
   - [x] Add timer controls plus outgoing and incoming stanza handling, including encrypted messages.
   - [x] Start timers when messages are read, expire local text and attachments, and keep expired markers through archive replay.
 - [ ] Verify message expiry across process restarts, MAM replay, attachment cleanup, and clients that support XEP-0466.
+  - [x] Preserve pending attachment cleanup paths in expired rows and retry cleanup after process restart.
+  - Runtime verification is still pending; this source-level review found and fixed the interrupted-cleanup case, but does not replace restart/device/client checks.
 - [x] Implement live location sharing with explicit duration, visible sharing status, and a clear stop-sharing action; request background location only when needed.
   - [x] Offer 15-minute, 1-hour, and 8-hour sharing with an explanation of who can see updates and that the final location remains in chat.
   - [x] Send location updates as corrections to one geo message, use the conversation's encryption, and keep the selected expiry duration active through process recreation where Android permits.

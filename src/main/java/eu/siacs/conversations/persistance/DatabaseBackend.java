@@ -1894,6 +1894,9 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                         + " * 1000 <= ?";
         final String[] selectionArgs = {Long.toString(timestamp)};
         final List<ExpiredEphemeralMessage> expired = new ArrayList<>();
+        // Keep the path on an expired row until file cleanup succeeds, so the next scan can retry.
+        final String pendingFileCleanupSelection =
+                Message.EPHEMERAL_EXPIRED + "=1 AND " + Message.RELATIVE_FILE_PATH + " IS NOT NULL";
         db.beginTransaction();
         try {
             try (final Cursor cursor =
@@ -1902,8 +1905,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                             new String[] {
                                 Message.UUID,
                                 Message.CONVERSATION,
-                                Message.RELATIVE_FILE_PATH,
-                                Message.ENCRYPTION
+                                Message.RELATIVE_FILE_PATH
                             },
                             selection,
                             selectionArgs,
@@ -1915,14 +1917,35 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                             new ExpiredEphemeralMessage(
                                     cursor.getString(0),
                                     cursor.getString(1),
-                                    cursor.getString(2),
-                                    cursor.getInt(3)));
+                                    cursor.getString(2) == null
+                                            ? cursor.getString(0)
+                                            : cursor.getString(2)));
+                }
+            }
+            try (final Cursor cursor =
+                    db.query(
+                            Message.TABLENAME,
+                            new String[] {
+                                Message.UUID,
+                                Message.CONVERSATION,
+                                Message.RELATIVE_FILE_PATH
+                            },
+                            pendingFileCleanupSelection,
+                            null,
+                            null,
+                            null,
+                            null)) {
+                while (cursor.moveToNext()) {
+                    expired.add(
+                            new ExpiredEphemeralMessage(
+                                    cursor.getString(0),
+                                    cursor.getString(1),
+                                    cursor.getString(2)));
                 }
             }
             final ContentValues values = new ContentValues();
             values.put(Message.BODY, marker);
             values.put(Message.TYPE, Message.TYPE_STATUS);
-            values.putNull(Message.RELATIVE_FILE_PATH);
             values.putNull(Message.REPLY_TO);
             values.putNull(Message.REPLY_ID);
             values.putNull(Message.REPLY_PREVIEW);
@@ -1933,11 +1956,35 @@ public class DatabaseBackend extends SQLiteOpenHelper {
             values.putNull(Message.REACTIONS);
             values.put(Message.EPHEMERAL_EXPIRED, 1);
             db.update(Message.TABLENAME, values, selection, selectionArgs);
+            for (final ExpiredEphemeralMessage message : expired) {
+                if (message.relativeFilePath().equals(message.uuid())) {
+                    final ContentValues cleanupPath = new ContentValues();
+                    cleanupPath.put(Message.RELATIVE_FILE_PATH, message.uuid());
+                    final String[] uuidArgs = {message.uuid()};
+                    db.update(
+                            Message.TABLENAME,
+                            cleanupPath,
+                            Message.UUID + "=? AND " + Message.RELATIVE_FILE_PATH + " IS NULL",
+                            uuidArgs);
+                }
+            }
             db.setTransactionSuccessful();
         } finally {
             db.endTransaction();
         }
         return expired;
+    }
+
+    public void clearEphemeralFilePath(final String uuid) {
+        final ContentValues values = new ContentValues();
+        values.putNull(Message.RELATIVE_FILE_PATH);
+        final String[] args = {uuid};
+        this.getWritableDatabase()
+                .update(
+                        Message.TABLENAME,
+                        values,
+                        Message.UUID + "=? AND " + Message.EPHEMERAL_EXPIRED + "=1",
+                        args);
     }
 
     public boolean isExpiredEphemeralDuplicate(
@@ -2036,7 +2083,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
     }
 
     public record ExpiredEphemeralMessage(
-            String uuid, String conversationUuid, String relativeFilePath, int encryption) {}
+            String uuid, String conversationUuid, String relativeFilePath) {}
 
     public boolean updateMessage(final Message message, final String uuid) {
         final var db = this.getWritableDatabase();
