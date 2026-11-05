@@ -761,6 +761,9 @@ public class ConversationFragment extends XmppFragment
                         case R.id.action_clear_history:
                             clearHistoryDialog(conversation);
                             break;
+                        case R.id.action_message_expiry:
+                            configureMessageExpiryTimer();
+                            break;
                         case R.id.action_mute:
                             muteConversationDialog(conversation);
                             break;
@@ -1174,6 +1177,35 @@ public class ConversationFragment extends XmppFragment
         } else {
             sendMessage(message);
         }
+    }
+
+    private void configureMessageExpiryTimer() {
+        final String[] entries = getResources().getStringArray(R.array.message_expiry_entries);
+        final int[] durations = getResources().getIntArray(R.array.message_expiry_values);
+        final long currentDuration = conversation.getMessageExpiryTimer();
+        int selected = 0;
+        for (int i = 0; i < durations.length; i++) {
+            if (durations[i] == currentDuration) {
+                selected = i;
+                break;
+            }
+        }
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.message_expiry_title)
+                .setMessage(R.string.message_expiry_explanation)
+                .setSingleChoiceItems(
+                        entries,
+                        selected,
+                        (dialog, which) -> {
+                            if (conversation.setMessageExpiryTimer(durations[which])) {
+                                requireXmppActivity()
+                                        .xmppConnectionService
+                                        .updateConversation(conversation);
+                            }
+                            dialog.dismiss();
+                        })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
     }
 
     private boolean trustKeysIfNeeded(final Conversation conversation, final int requestCode) {

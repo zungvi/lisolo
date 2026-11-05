@@ -11,6 +11,7 @@ import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.xml.Namespace;
 import eu.siacs.conversations.xmpp.Jid;
 import im.conversations.android.xmpp.model.correction.Replace;
+import im.conversations.android.xmpp.model.ephemeral.Ephemeral;
 import im.conversations.android.xmpp.model.fallback.Body;
 import im.conversations.android.xmpp.model.fallback.Fallback;
 import im.conversations.android.xmpp.model.hints.Store;
@@ -74,6 +75,9 @@ public class MessageGenerator extends AbstractGenerator {
                 }
             }
             packet.addExtension(reply);
+        }
+        if (message.getEphemeralTimer() > 0) {
+            packet.addExtension(new Ephemeral(message.getEphemeralTimer()));
         }
         return packet;
     }

@@ -61,6 +61,7 @@ public class Conversation extends AbstractEntity
 
     public static final String ATTRIBUTE_SCAM_LIKELY = "scam_likely";
     public static final String ATTRIBUTE_MEDIA_GALLERY_VISIBLE = "media_gallery_visible";
+    public static final String ATTRIBUTE_MESSAGE_EXPIRY_TIMER = "message_expiry_timer";
     private static final String ATTRIBUTE_MARKED_UNREAD = "marked_unread";
     static final String ATTRIBUTE_MUC_PASSWORD = "muc_password";
     static final String ATTRIBUTE_CAPS2_HASH = "muc_caps2_hash";
@@ -798,6 +799,17 @@ public class Conversation extends AbstractEntity
 
     public boolean setNextEncryption(int encryption) {
         return this.setAttribute(ATTRIBUTE_NEXT_ENCRYPTION, encryption);
+    }
+
+    public long getMessageExpiryTimer() {
+        return getLongAttribute(ATTRIBUTE_MESSAGE_EXPIRY_TIMER, 0);
+    }
+
+    public boolean setMessageExpiryTimer(final long seconds) {
+        if (seconds < 0) {
+            throw new IllegalArgumentException("message expiry timer must not be negative");
+        }
+        return setAttribute(ATTRIBUTE_MESSAGE_EXPIRY_TIMER, seconds);
     }
 
     public String getNextMessage() {

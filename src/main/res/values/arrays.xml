@@ -18,6 +18,24 @@
 		<item>-1</item>
 	</integer-array>
 
+	<integer-array name="message_expiry_values">
+		<item>0</item>
+		<item>30</item>
+		<item>60</item>
+		<item>300</item>
+		<item>3600</item>
+		<item>86400</item>
+	</integer-array>
+
+	<string-array name="message_expiry_entries">
+		<item>@string/message_expiry_off</item>
+		<item>@string/message_expiry_30_seconds</item>
+		<item>@string/message_expiry_1_minute</item>
+		<item>@string/message_expiry_5_minutes</item>
+		<item>@string/message_expiry_1_hour</item>
+		<item>@string/message_expiry_1_day</item>
+	</string-array>
+
 	<string-array name="quick_actions">
 		<item>@string/none</item>
 		<item>@string/recently_used</item>

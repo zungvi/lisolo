@@ -1582,6 +1582,13 @@ public class XmppConnectionService extends Service {
         im.conversations.android.xmpp.model.stanza.Message packet = null;
         final boolean addToConversation = !message.edited();
         boolean saveInDb = addToConversation;
+        if (!resend && addToConversation && message.getEphemeralTimer() == 0) {
+            final long ephemeralTimer = conversation.getMessageExpiryTimer();
+            if (ephemeralTimer > 0) {
+                message.setEphemeralTimer(ephemeralTimer);
+                message.setEphemeralStartTime(System.currentTimeMillis());
+            }
+        }
         message.setStatus(Message.STATUS_WAITING);
 
         if (message.getEncryption() != Message.ENCRYPTION_NONE

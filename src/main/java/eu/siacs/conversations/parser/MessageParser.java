@@ -44,6 +44,7 @@ import im.conversations.android.xmpp.model.carbons.Received;
 import im.conversations.android.xmpp.model.carbons.Sent;
 import im.conversations.android.xmpp.model.conference.DirectInvite;
 import im.conversations.android.xmpp.model.correction.Replace;
+import im.conversations.android.xmpp.model.ephemeral.Ephemeral;
 import im.conversations.android.xmpp.model.fallback.Body;
 import im.conversations.android.xmpp.model.fallback.Fallback;
 import im.conversations.android.xmpp.model.forward.Forwarded;
@@ -522,6 +523,11 @@ public class MessageParser extends AbstractParser
                 }
             }
 
+            final var ephemeral = packet.getOnlyExtension(Ephemeral.class);
+            final Long ephemeralTimer = ephemeral == null ? null : ephemeral.getTimer();
+            if (ephemeralTimer != null && ephemeralTimer > 0) {
+                message.setEphemeralTimer(ephemeralTimer);
+            }
             message.setCounterpart(counterpart);
             message.setRemoteMsgId(remoteMsgId);
             message.setServerMsgId(serverMsgId);

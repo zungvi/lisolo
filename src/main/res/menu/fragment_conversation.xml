@@ -111,6 +111,11 @@
         android:title="@string/action_clear_history"
         app:showAsAction="never" />
     <item
+        android:id="@+id/action_message_expiry"
+        android:orderInCategory="55"
+        android:title="@string/message_expiry"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_archive"
         android:orderInCategory="60"
         android:title="@string/action_archive_chat"
