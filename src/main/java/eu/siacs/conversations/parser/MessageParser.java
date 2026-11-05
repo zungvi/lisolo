@@ -570,6 +570,11 @@ public class MessageParser extends AbstractParser
             }
 
             if (replacementId != null && mXmppConnectionService.allowMessageCorrection()) {
+                if (mXmppConnectionService.databaseBackend.isExpiredEphemeralReference(
+                        conversation, counterpart, replacementId, System.currentTimeMillis())) {
+                    Log.d(Config.LOGTAG, "ignoring correction of an expired archive message");
+                    return;
+                }
                 final Message replacedMessage =
                         conversation.findMessageWithRemoteIdAndCounterpart(
                                 replacementId,
@@ -577,6 +582,10 @@ public class MessageParser extends AbstractParser
                                 message.getStatus() == Message.STATUS_RECEIVED,
                                 message.isCarbon());
                 if (replacedMessage != null) {
+                    if (replacedMessage.isEphemeralExpired()) {
+                        Log.d(Config.LOGTAG, "ignoring correction for an expired message");
+                        return;
+                    }
                     final boolean fingerprintsMatch =
                             replacedMessage.getFingerprint() == null
                                     || replacedMessage
@@ -670,10 +679,16 @@ public class MessageParser extends AbstractParser
                     (isTypeGroupChat && packet.hasChild("delay", "urn:xmpp:delay"))
                             || message.isPrivateMessage()
                             || message.getServerMsgId() != null
+                            || query != null
                             || (query == null
                                     && getManager(MessageArchiveManager.class)
                                             .isCatchupInProgress(conversation));
             if (checkForDuplicates) {
+                if (mXmppConnectionService.databaseBackend.isExpiredEphemeralDuplicate(
+                        conversation, message, System.currentTimeMillis())) {
+                    Log.d(Config.LOGTAG, "skipping archive replay of an expired message");
+                    return;
+                }
                 final Message duplicate = conversation.findDuplicateMessage(message);
                 if (duplicate != null) {
                     final boolean serverMsgIdUpdated;
@@ -723,6 +738,11 @@ public class MessageParser extends AbstractParser
                     message.markUnread();
                     notify = true;
                 }
+            }
+            if (message.isRead()
+                    && message.getEphemeralTimer() > 0
+                    && message.getEphemeralStartTime() == 0) {
+                message.setEphemeralStartTime(System.currentTimeMillis());
             }
 
             if (message.getEncryption() == Message.ENCRYPTION_PGP) {

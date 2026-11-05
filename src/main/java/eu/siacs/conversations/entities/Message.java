@@ -543,6 +543,25 @@ public class Message extends AbstractEntity
         this.ephemeralExpired = expired;
     }
 
+    public synchronized boolean expireEphemeral(final String marker) {
+        if (ephemeralExpired || ephemeralTimer <= 0 || ephemeralStartTime <= 0) {
+            return false;
+        }
+        ephemeralExpired = true;
+        setBody(marker);
+        setType(TYPE_STATUS);
+        setRelativeFilePath(null);
+        setReply(null, null, null);
+        setReactions(Collections.emptyList());
+        setTransferable(null);
+        setEncryption(ENCRYPTION_NONE);
+        setOob(false);
+        setErrorMessage(null);
+        edits.clear();
+        encryptedBody = null;
+        return true;
+    }
+
     public boolean isDeleted() {
         return this.deleted;
     }
@@ -662,6 +681,16 @@ public class Message extends AbstractEntity
     }
 
     boolean similar(Message message) {
+        if (ephemeralExpired) {
+            if (serverMsgId != null && serverMsgId.equals(message.getServerMsgId())) {
+                return true;
+            }
+            return counterpart != null
+                    && counterpart.equals(message.getCounterpart())
+                    && remoteMsgId != null
+                    && (remoteMsgId.equals(message.getRemoteMsgId())
+                            || remoteMsgId.equals(message.getUuid()));
+        }
         if (!isPrivateMessage() && this.serverMsgId != null && message.getServerMsgId() != null) {
             return this.serverMsgId.equals(message.getServerMsgId())
                     || Edit.wasPreviouslyEditedServerMsgId(edits, message.getServerMsgId());

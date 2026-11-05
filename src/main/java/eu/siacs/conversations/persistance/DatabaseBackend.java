@@ -69,7 +69,7 @@ import org.whispersystems.libsignal.state.SignedPreKeyRecord;
 public class DatabaseBackend extends SQLiteOpenHelper {
 
     private static final String DATABASE_NAME = "history";
-    private static final int DATABASE_VERSION = 56;
+    private static final int DATABASE_VERSION = 57;
 
     private static boolean requiresMessageIndexRebuild = false;
     private static DatabaseBackend instance = null;
@@ -303,6 +303,14 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                     + ")";
     private static final String CREATE_MESSAGE_TYPE_INDEX =
             "CREATE INDEX message_type_index ON " + Message.TABLENAME + "(" + Message.TYPE + ")";
+    private static final String CREATE_MESSAGE_EPHEMERAL_EXPIRY_INDEX =
+            "CREATE INDEX message_ephemeral_expiry_index ON "
+                    + Message.TABLENAME
+                    + "("
+                    + Message.EPHEMERAL_EXPIRED
+                    + ","
+                    + Message.EPHEMERAL_START_TIME
+                    + ")";
 
     private static final String CREATE_MESSAGE_INDEX_TABLE =
             "CREATE VIRTUAL TABLE messages_index USING fts4"
@@ -507,6 +515,7 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         db.execSQL(CREATE_MESSAGE_DELETED_INDEX);
         db.execSQL(CREATE_MESSAGE_RELATIVE_FILE_PATH_INDEX);
         db.execSQL(CREATE_MESSAGE_TYPE_INDEX);
+        db.execSQL(CREATE_MESSAGE_EPHEMERAL_EXPIRY_INDEX);
         db.execSQL(CREATE_CONTACTS_STATEMENT);
         db.execSQL(CREATE_SESSIONS_STATEMENT);
         db.execSQL(CREATE_PREKEYS_STATEMENT);
@@ -1129,6 +1138,9 @@ public class DatabaseBackend extends SQLiteOpenHelper {
                             + " ADD COLUMN "
                             + Message.EPHEMERAL_EXPIRED
                             + " NUMBER DEFAULT 0");
+        }
+        if (oldVersion < 57 && newVersion >= 57) {
+            db.execSQL(CREATE_MESSAGE_EPHEMERAL_EXPIRY_INDEX);
         }
     }
 
@@ -1861,6 +1873,170 @@ public class DatabaseBackend extends SQLiteOpenHelper {
         final int rows = db.update(Message.TABLENAME, contentValues, Message.UUID + "=?", args);
         return rows == 1;
     }
+
+    public List<ExpiredEphemeralMessage> expireEphemeralMessages(
+            final long timestamp, final String marker) {
+        final SQLiteDatabase db = this.getWritableDatabase();
+        final String selection =
+                Message.EPHEMERAL_TIMER
+                        + ">0 AND "
+                        + Message.EPHEMERAL_START_TIME
+                        + ">0 AND "
+                        + Message.EPHEMERAL_EXPIRED
+                        + "=0 AND "
+                        + Message.STATUS
+                        + "!="
+                        + Message.STATUS_WAITING
+                        + " AND "
+                        + Message.EPHEMERAL_START_TIME
+                        + " + "
+                        + Message.EPHEMERAL_TIMER
+                        + " * 1000 <= ?";
+        final String[] selectionArgs = {Long.toString(timestamp)};
+        final List<ExpiredEphemeralMessage> expired = new ArrayList<>();
+        db.beginTransaction();
+        try {
+            try (final Cursor cursor =
+                    db.query(
+                            Message.TABLENAME,
+                            new String[] {
+                                Message.UUID,
+                                Message.CONVERSATION,
+                                Message.RELATIVE_FILE_PATH,
+                                Message.ENCRYPTION
+                            },
+                            selection,
+                            selectionArgs,
+                            null,
+                            null,
+                            null)) {
+                while (cursor.moveToNext()) {
+                    expired.add(
+                            new ExpiredEphemeralMessage(
+                                    cursor.getString(0),
+                                    cursor.getString(1),
+                                    cursor.getString(2),
+                                    cursor.getInt(3)));
+                }
+            }
+            final ContentValues values = new ContentValues();
+            values.put(Message.BODY, marker);
+            values.put(Message.TYPE, Message.TYPE_STATUS);
+            values.putNull(Message.RELATIVE_FILE_PATH);
+            values.putNull(Message.REPLY_TO);
+            values.putNull(Message.REPLY_ID);
+            values.putNull(Message.REPLY_PREVIEW);
+            values.put(Message.EDITED, "[]");
+            values.put(Message.OOB, 0);
+            values.put(Message.ENCRYPTION, Message.ENCRYPTION_NONE);
+            values.putNull(Message.ERROR_MESSAGE);
+            values.putNull(Message.REACTIONS);
+            values.put(Message.EPHEMERAL_EXPIRED, 1);
+            db.update(Message.TABLENAME, values, selection, selectionArgs);
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+        }
+        return expired;
+    }
+
+    public boolean isExpiredEphemeralDuplicate(
+            final Conversation conversation, final Message message, final long timestamp) {
+        final String selection =
+                Message.CONVERSATION
+                        + "=? AND "
+                        + Message.EPHEMERAL_TIMER
+                        + ">0 AND ("
+                        + Message.EPHEMERAL_EXPIRED
+                        + "=1 OR ("
+                        + Message.EPHEMERAL_START_TIME
+                        + ">0 AND "
+                        + Message.EPHEMERAL_START_TIME
+                        + " + "
+                        + Message.EPHEMERAL_TIMER
+                        + " * 1000 <= ?)) AND ("
+                        + Message.SERVER_MSG_ID
+                        + "=? OR ("
+                        + Message.COUNTERPART
+                        + "=? AND ("
+                        + Message.REMOTE_MSG_ID
+                        + "=? OR "
+                        + Message.UUID
+                        + "=?)))";
+        final String[] selectionArgs = {
+            conversation.getUuid(),
+            Long.toString(timestamp),
+            message.getServerMsgId(),
+            message.getCounterpart() == null ? null : message.getCounterpart().toString(),
+            message.getRemoteMsgId(),
+            message.getRemoteMsgId()
+        };
+        try (final Cursor cursor =
+                this.getReadableDatabase()
+                        .query(
+                                Message.TABLENAME,
+                                new String[] {Message.UUID},
+                                selection,
+                                selectionArgs,
+                                null,
+                                null,
+                                null,
+                                "1")) {
+            return cursor.moveToFirst();
+        }
+    }
+
+    public boolean isExpiredEphemeralReference(
+            final Conversation conversation,
+            final Jid counterpart,
+            final String referencedId,
+            final long timestamp) {
+        final String selection =
+                Message.CONVERSATION
+                        + "=? AND "
+                        + Message.EPHEMERAL_TIMER
+                        + ">0 AND ("
+                        + Message.EPHEMERAL_EXPIRED
+                        + "=1 OR ("
+                        + Message.EPHEMERAL_START_TIME
+                        + ">0 AND "
+                        + Message.EPHEMERAL_START_TIME
+                        + " + "
+                        + Message.EPHEMERAL_TIMER
+                        + " * 1000 <= ?)) AND ("
+                        + Message.SERVER_MSG_ID
+                        + "=? OR ("
+                        + Message.COUNTERPART
+                        + "=? AND ("
+                        + Message.REMOTE_MSG_ID
+                        + "=? OR "
+                        + Message.UUID
+                        + "=?)))";
+        final String[] selectionArgs = {
+            conversation.getUuid(),
+            Long.toString(timestamp),
+            referencedId,
+            counterpart == null ? null : counterpart.toString(),
+            referencedId,
+            referencedId
+        };
+        try (final Cursor cursor =
+                this.getReadableDatabase()
+                        .query(
+                                Message.TABLENAME,
+                                new String[] {Message.UUID},
+                                selection,
+                                selectionArgs,
+                                null,
+                                null,
+                                null,
+                                "1")) {
+            return cursor.moveToFirst();
+        }
+    }
+
+    public record ExpiredEphemeralMessage(
+            String uuid, String conversationUuid, String relativeFilePath, int encryption) {}
 
     public boolean updateMessage(final Message message, final String uuid) {
         final var db = this.getWritableDatabase();

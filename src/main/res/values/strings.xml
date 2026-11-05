@@ -333,6 +333,7 @@
     <string name="message_expiry_5_minutes">5 minutes</string>
     <string name="message_expiry_1_hour">1 hour</string>
     <string name="message_expiry_1_day">1 day</string>
+    <string name="message_expired">Message expired</string>
     <string name="quote">Quote</string>
     <string name="paste_as_quote">Paste as quote</string>
     <string name="copy_original_url">Copy original URL</string>

@@ -1077,6 +1077,33 @@ public class XmppConnectionService extends Service {
                 });
     }
 
+    private void expireEphemeralMessages() {
+        mDatabaseWriterExecutor.execute(
+                () -> {
+                    final String marker = getString(R.string.message_expired);
+                    final List<DatabaseBackend.ExpiredEphemeralMessage> expiredMessages =
+                            databaseBackend.expireEphemeralMessages(
+                                    System.currentTimeMillis(), marker);
+                    if (expiredMessages.isEmpty()) {
+                        return;
+                    }
+                    for (final var expired : expiredMessages) {
+                        fileBackend.deleteEphemeralFiles(
+                                expired.uuid(), expired.relativeFilePath(), expired.encryption());
+                        final Conversation conversation =
+                                findConversationByUuid(expired.conversationUuid());
+                        if (conversation != null) {
+                            final Message message = conversation.findMessageWithUuid(expired.uuid());
+                            if (message != null) {
+                                message.expireEphemeral(marker);
+                            }
+                        }
+                    }
+                    updateConversationUi();
+                    mNotificationService.updateNotification();
+                });
+    }
+
     public boolean hasInternetConnection() {
         final ConnectivityManager cm =
                 ContextCompat.getSystemService(this, ConnectivityManager.class);
@@ -1214,6 +1241,8 @@ public class XmppConnectionService extends Service {
         toggleForegroundService();
         internalPingExecutor.scheduleWithFixedDelay(
                 this::manageAccountConnectionStatesInternal, 10, 10, TimeUnit.SECONDS);
+        internalPingExecutor.scheduleWithFixedDelay(
+                this::expireEphemeralMessages, 1, 10, TimeUnit.SECONDS);
         final SharedPreferences sharedPreferences =
                 androidx.preference.PreferenceManager.getDefaultSharedPreferences(this);
         sharedPreferences.registerOnSharedPreferenceChangeListener(
@@ -1586,7 +1615,6 @@ public class XmppConnectionService extends Service {
             final long ephemeralTimer = conversation.getMessageExpiryTimer();
             if (ephemeralTimer > 0) {
                 message.setEphemeralTimer(ephemeralTimer);
-                message.setEphemeralStartTime(System.currentTimeMillis());
             }
         }
         message.setStatus(Message.STATUS_WAITING);
@@ -1725,6 +1753,12 @@ public class XmppConnectionService extends Service {
             updateConversationUi();
         }
         if (packet != null) {
+            if (addToConversation
+                    && message.getEphemeralTimer() > 0
+                    && message.getEphemeralStartTime() == 0) {
+                message.setEphemeralStartTime(System.currentTimeMillis());
+                databaseBackend.updateMessage(message, false);
+            }
             if (delay) {
                 packet.addExtension(new Delay(Instant.ofEpochMilli(message.getTimeSent())));
             }
@@ -3653,6 +3687,14 @@ public class XmppConnectionService extends Service {
         }
         final List<Message> readMessages = conversation.markRead(upToUuid);
         if (readMessages.size() > 0) {
+            final long readTimestamp = System.currentTimeMillis();
+            for (final Message message : readMessages) {
+                if (message.getEphemeralTimer() > 0
+                        && message.getEphemeralStartTime() == 0
+                        && !message.isEphemeralExpired()) {
+                    message.setEphemeralStartTime(readTimestamp);
+                }
+            }
             Runnable runnable =
                     () -> {
                         for (Message message : readMessages) {

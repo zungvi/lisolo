@@ -561,6 +561,30 @@ public class FileBackend {
         }
     }
 
+    public void deleteEphemeralFiles(
+            final String uuid, final String relativeFilePath, final int encryption) {
+        mXmppConnectionService.getBitmapCache().remove(uuid);
+        final String path = relativeFilePath == null ? uuid : relativeFilePath;
+        final File file = getFileForPath(path);
+        deleteExpiredFile(file);
+        if (encryption == Message.ENCRYPTION_PGP
+                || encryption == Message.ENCRYPTION_DECRYPTED) {
+            deleteExpiredFile(
+                    new File(mXmppConnectionService.getCacheDir(), file.getName() + ".pgp"));
+        }
+    }
+
+    private void deleteExpiredFile(final File file) {
+        if (!file.exists()) {
+            return;
+        }
+        if (file.delete()) {
+            updateMediaScanner(file);
+        } else {
+            Log.e(Config.LOGTAG, "failed to delete expired attachment " + file.getAbsolutePath());
+        }
+    }
+
     public DownloadableFile getFile(Message message) {
         return getFile(message, true);
     }
