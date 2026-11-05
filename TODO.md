@@ -59,6 +59,7 @@
   | Wi-Fi, mobile data, restrictive NAT with TURN | Verify ICE negotiation, relay fallback, reconnect, and media permissions |
 
 - **Acceptance cases:** cover host start, invitation, join, late join, participant leave, host end, kick/ban, camera or microphone denied, audio-only, network handoff, process recreation, no common codec, unavailable TURN, and anonymous-room privacy refusal. Start with small rooms; MUJI’s peer mesh adds a Jingle session for every participant pair, and the XEP calls for relays or mixers as group size grows.
+- **Verification status:** pending. The current workstation has no Java runtime and no attached Android device or emulator, so the unit-test task and live server/client matrix could not run. Keep this unchecked until the required runtime and test devices are available.
 
 ### Message expiry, live location, and abuse reporting
 
