@@ -955,6 +955,7 @@
     <string name="rtp_state_content_add_video">Switch to video call?</string>
     <string name="rtp_state_content_add">Add additional tracks?</string>
     <string name="rtp_state_connecting">Connecting</string>
+    <string name="rtp_state_waiting_for_participants">Waiting for participants</string>
     <string name="rtp_state_connected">Connected</string>
     <string name="rtp_state_reconnecting">Reconnecting</string>
     <string name="rtp_state_accepting_call">Accepting call</string>
@@ -1001,6 +1002,16 @@
     <string name="switch_to_chat">Switch to chat</string>
     <string name="microphone_unavailable">Your microphone is unavailable</string>
     <string name="only_one_call_at_a_time">You can only have one call at a time.</string>
+    <string name="muji_call_confirmation_title">Start a group call?</string>
+    <string name="muji_call_confirmation_message">Group calls use direct connections to up to %1$d participants, including you. Everyone joining needs a compatible MUJI client. This room is non-anonymous, so participants can see real XMPP addresses. Continue?</string>
+    <string name="muji_call_requires_supported_room">Group calls require a joined, members-only, non-anonymous room.</string>
+    <string name="muji_call_no_compatible_participants">No other room participants have announced compatible MUJI call media.</string>
+    <string name="muji_call_limit_reached">This first group-call release supports up to %2$d participants total. %1$d compatible MUJI participants are currently available, so the call was not started.</string>
+    <string name="muji_call_video_not_shared">The room does not have a shared video codec profile. No call was started. Choose an audio call to try voice instead.</string>
+    <string name="muji_call_setup_failed">Could not start the group call. Check that room participants use compatible MUJI clients and try again.</string>
+    <string name="muji_call_waiting_for_participants">Waiting for other compatible room members to join.</string>
+    <string name="muji_camera_denied_title">Use audio only?</string>
+    <string name="muji_camera_denied_audio_fallback">Camera access was not granted. Start an audio-only group call instead?</string>
     <string name="return_to_ongoing_call">Return to ongoing call</string>
     <string name="could_not_switch_camera">Could not switch camera</string>
     <string name="add_to_favorites">Pin to top</string>

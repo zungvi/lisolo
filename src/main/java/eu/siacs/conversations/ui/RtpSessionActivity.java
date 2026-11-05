@@ -1017,7 +1017,13 @@ public class RtpSessionActivity extends XmppActivity
                     setTitle(R.string.rtp_state_content_add);
                 }
             }
-            case CONNECTING -> setTitle(R.string.rtp_state_connecting);
+            case CONNECTING -> {
+                final MujiCallCoordinator coordinator = getMujiCallCoordinator();
+                setTitle(
+                        coordinator != null && coordinator.getActiveParticipantCount() == 0
+                                ? R.string.rtp_state_waiting_for_participants
+                                : R.string.rtp_state_connecting);
+            }
             case CONNECTED -> setTitle(R.string.rtp_state_connected);
             case RECONNECTING -> setTitle(R.string.rtp_state_reconnecting);
             case ACCEPTING_CALL -> setTitle(R.string.rtp_state_accepting_call);

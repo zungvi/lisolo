@@ -22,6 +22,7 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.util.concurrent.SettableFuture;
 import eu.siacs.conversations.AppSettings;
 import eu.siacs.conversations.BuildConfig;
 import eu.siacs.conversations.Config;
@@ -100,6 +101,10 @@ public class JingleRtpConnection extends AbstractJingleConnection
 
     private Set<Media> proposedMedia;
     private RtpContentMap initiatorRtpContentMap;
+    @Nullable private RtpContentMap preparedMujiInitiateContentMap;
+    @Nullable private ImmutableMultimap<String, IceUdpTransportInfo.Candidate>
+            preparedMujiInitiateCandidates;
+    private boolean preparedMujiInitiateIncludesCandidates;
     private RtpContentMap responderRtpContentMap;
     private RtpContentMap incomingContentAdd;
     private RtpContentMap outgoingContentAdd;
@@ -1208,10 +1213,10 @@ public class JingleRtpConnection extends AbstractJingleConnection
                 Config.LOGTAG,
                 "processing session-init with " + contentMap.contents.size() + " contents");
         final State target;
-        if (this.state == State.PROCEED) {
+        if (this.state == State.PROCEED || this.mujiCallCoordinator != null) {
             Preconditions.checkState(
                     proposedMedia != null && proposedMedia.size() > 0,
-                    "proposed media must be set when processing pre-approved session-initiate");
+                    "proposed media must be set when processing an approved session-initiate");
             if (!this.proposedMedia.equals(contentMap.getMedia())) {
                 sendSessionTerminate(
                         new Reason.SecurityError(),
@@ -1890,6 +1895,129 @@ public class JingleRtpConnection extends AbstractJingleConnection
         }
     }
 
+    /** Prepare the first MUJI peer offer so its RTP map can be agreed before it is sent. */
+    public ListenableFuture<RtpContentMap> prepareMujiSessionInitiate() {
+        Preconditions.checkState(
+                this.mujiCallCoordinator != null && this.sharedWebRTCResources != null,
+                "MUJI coordinator resources must be assigned before preparing a peer offer");
+        Preconditions.checkState(this.state == State.NULL, "Jingle session has already started");
+        final Set<Media> media =
+                Preconditions.checkNotNull(this.proposedMedia, "MUJI media was not set");
+        final SettableFuture<RtpContentMap> result = SettableFuture.create();
+        discoverIceServers(
+                iceServers -> {
+                    if (isTerminated()) {
+                        result.setException(
+                                new IllegalStateException("MUJI peer session was terminated"));
+                        return;
+                    }
+                    final boolean includeCandidates = remoteHasSdpOfferAnswer();
+                    try {
+                        setupWebRTC(media, iceServers, !includeCandidates);
+                    } catch (final WebRTCWrapper.InitializationException e) {
+                        result.setException(e);
+                        return;
+                    }
+                    Futures.addCallback(
+                            webRTCWrapper.setLocalDescription(includeCandidates),
+                            new FutureCallback<>() {
+                                @Override
+                                public void onSuccess(
+                                        final org.webrtc.SessionDescription description) {
+                                    try {
+                                        final SessionDescription sessionDescription =
+                                                SessionDescription.parse(description.description);
+                                        final RtpContentMap contentMap =
+                                                RtpContentMap.of(sessionDescription, true);
+                                        final ImmutableMultimap<
+                                                        String,
+                                                        IceUdpTransportInfo.Candidate>
+                                                candidates =
+                                                        includeCandidates
+                                                                ? parseCandidates(
+                                                                        sessionDescription)
+                                                                : ImmutableMultimap.of();
+                                        synchronized (JingleRtpConnection.this) {
+                                            preparedMujiInitiateContentMap = contentMap;
+                                            preparedMujiInitiateCandidates = candidates;
+                                            preparedMujiInitiateIncludesCandidates =
+                                                    includeCandidates;
+                                        }
+                                        result.set(contentMap);
+                                    } catch (final RuntimeException e) {
+                                        result.setException(e);
+                                    }
+                                }
+
+                                @Override
+                                public void onFailure(@NonNull final Throwable throwable) {
+                                    result.setException(throwable);
+                                }
+                            },
+                            MoreExecutors.directExecutor());
+                });
+        return result;
+    }
+
+    /** Send the prepared first-peer offer once room-wide codec agreement is installed. */
+    public void sendPreparedMujiSessionInitiate() {
+        final RtpContentMap preparedContentMap;
+        final ImmutableMultimap<String, IceUdpTransportInfo.Candidate> candidates;
+        final boolean includeCandidates;
+        synchronized (this) {
+            Preconditions.checkState(this.state == State.NULL, "Jingle session has already started");
+            preparedContentMap =
+                    Preconditions.checkNotNull(
+                            preparedMujiInitiateContentMap,
+                            "MUJI peer offer has not been prepared");
+            candidates =
+                    Preconditions.checkNotNull(
+                            preparedMujiInitiateCandidates,
+                            "MUJI peer candidates have not been prepared");
+            includeCandidates = preparedMujiInitiateIncludesCandidates;
+            preparedMujiInitiateContentMap = null;
+            preparedMujiInitiateCandidates = null;
+        }
+        final RtpContentMap agreedContentMap = retainMujiPayloadTypes(preparedContentMap);
+        this.initiatorRtpContentMap = agreedContentMap;
+        Futures.addCallback(
+                encryptSessionInitiate(agreedContentMap),
+                new FutureCallback<>() {
+                    @Override
+                    public void onSuccess(final RtpContentMap outgoingContentMap) {
+                        final RtpContentMap withCandidates =
+                                includeCandidates
+                                        ? outgoingContentMap.withCandidates(candidates)
+                                        : outgoingContentMap;
+                        sendSessionInitiate(withCandidates, State.SESSION_INITIALIZED);
+                        webRTCWrapper.setIsReadyToReceiveIceCandidates(true);
+                    }
+
+                    @Override
+                    public void onFailure(@NonNull final Throwable throwable) {
+                        failMujiSessionInitiate(throwable);
+                    }
+                },
+                MoreExecutors.directExecutor());
+    }
+
+    private void failMujiSessionInitiate(final Throwable throwable) {
+        if (isTerminated()) {
+            return;
+        }
+        Log.d(
+                Config.LOGTAG,
+                id.account.getJid().asBareJid() + ": unable to prepare MUJI session-initiate",
+                Throwables.getRootCause(throwable));
+        if (this.state == State.NULL) {
+            webRTCWrapper.close();
+            transitionOrThrow(State.TERMINATED_APPLICATION_FAILURE);
+            finish();
+        } else {
+            failureToInitiateSession(throwable, State.SESSION_INITIALIZED);
+        }
+    }
+
     public void sendSessionInitiate() {
         sendSessionInitiate(this.proposedMedia, State.SESSION_INITIALIZED);
     }
@@ -2100,7 +2228,9 @@ public class JingleRtpConnection extends AbstractJingleConnection
                 if (isInitiator()) {
                     return RtpEndUserState.RINGING;
                 } else {
-                    return RtpEndUserState.INCOMING_CALL;
+                    return mujiCallCoordinator == null
+                            ? RtpEndUserState.INCOMING_CALL
+                            : RtpEndUserState.CONNECTING;
                 }
             }
             case PROCEED -> {
@@ -2155,6 +2285,10 @@ public class JingleRtpConnection extends AbstractJingleConnection
         }
         throw new IllegalStateException(
                 String.format("%s has no equivalent EndUserState", this.state));
+    }
+
+    public boolean isInitiatedByAccount() {
+        return isInitiator();
     }
 
     private RtpEndUserState getPeerConnectionStateAsEndUserState() {
@@ -3055,18 +3189,23 @@ public class JingleRtpConnection extends AbstractJingleConnection
         Preconditions.checkState(
                 this.state == State.NULL,
                 "Shared WebRTC resources must be assigned before a Jingle session starts");
+        Preconditions.checkNotNull(sharedWebRTCResources);
         Preconditions.checkState(
-                this.sharedWebRTCResources == null, "Shared WebRTC resources are already set");
-        this.sharedWebRTCResources = Preconditions.checkNotNull(sharedWebRTCResources);
+                this.sharedWebRTCResources == null
+                        || this.sharedWebRTCResources == sharedWebRTCResources,
+                "A different shared WebRTC resource set is already assigned");
+        this.sharedWebRTCResources = sharedWebRTCResources;
     }
 
     void setMujiCallCoordinator(final MujiCallCoordinator mujiCallCoordinator) {
         Preconditions.checkState(
                 this.state == State.NULL,
                 "MUJI coordinator must be assigned before a Jingle session starts");
+        Preconditions.checkNotNull(mujiCallCoordinator);
         Preconditions.checkState(
-                this.mujiCallCoordinator == null, "MUJI coordinator is already assigned");
-        this.mujiCallCoordinator = Preconditions.checkNotNull(mujiCallCoordinator);
+                this.mujiCallCoordinator == null || this.mujiCallCoordinator == mujiCallCoordinator,
+                "A different MUJI coordinator is already assigned");
+        this.mujiCallCoordinator = mujiCallCoordinator;
     }
 
     private RtpContentMap retainMujiPayloadTypes(final RtpContentMap contentMap) {
@@ -3077,6 +3216,7 @@ public class JingleRtpConnection extends AbstractJingleConnection
     private void validateMujiPayloadMapping(final RtpContentMap contentMap) {
         final MujiCallCoordinator coordinator = this.mujiCallCoordinator;
         if (coordinator != null) {
+            coordinator.requireAgreedMedia(contentMap.getMedia());
             coordinator.validatePeerContentMap(contentMap);
         }
     }

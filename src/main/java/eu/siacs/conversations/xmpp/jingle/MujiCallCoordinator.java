@@ -6,17 +6,21 @@ import android.telecom.VideoProfile;
 import android.util.Log;
 import androidx.annotation.Nullable;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.entities.Conversation;
+import eu.siacs.conversations.entities.MucOptions;
 import eu.siacs.conversations.services.CallIntegration;
 import eu.siacs.conversations.services.XmppConnectionService;
 import eu.siacs.conversations.xmpp.Jid;
 import eu.siacs.conversations.xmpp.manager.MultiUserChatManager;
+import im.conversations.android.xmpp.model.jingle.Muji;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -24,6 +28,10 @@ import java.util.function.Consumer;
 
 /** Owns the peer sessions and shared media resources for one MUJI room call. */
 public final class MujiCallCoordinator implements CallIntegration.Callback, OngoingRtpSession {
+
+    /** Initial mesh limit, including the local participant. */
+    public static final int MAX_PARTICIPANTS = 5;
+    private static final int MAX_REMOTE_PARTICIPANTS = MAX_PARTICIPANTS - 1;
 
     private final XmppConnectionService service;
     private final Conversation conversation;
@@ -37,6 +45,7 @@ public final class MujiCallCoordinator implements CallIntegration.Callback, Ongo
     private boolean ending;
     private boolean finished;
     private boolean audioRoutingStarted;
+    private boolean started;
     private boolean hasConnectedPeer;
     private boolean callIntegrationActive;
     private long connectedAt;
@@ -101,6 +110,9 @@ public final class MujiCallCoordinator implements CallIntegration.Callback, Ongo
         final boolean startAudioRouting;
         synchronized (this) {
             Preconditions.checkState(!ending, "Cannot add a peer after the room call is ending");
+            Preconditions.checkState(
+                    peerSessions.size() < MAX_REMOTE_PARTICIPANTS,
+                    "MUJI mesh calls are limited to " + MAX_PARTICIPANTS + " participants");
             Preconditions.checkArgument(
                     sharedMedia == null || sharedMedia.equals(media),
                     "All MUJI peer sessions must use the room's shared media set");
@@ -114,6 +126,7 @@ public final class MujiCallCoordinator implements CallIntegration.Callback, Ongo
             connection.setMujiCallCoordinator(this);
             peerSessions.put(participant, connection);
             participantStates.put(participant, connection.getEndUserState());
+            started = true;
             startAudioRouting = !audioRoutingStarted;
             audioRoutingStarted = true;
             stateSnapshot = immutableParticipantStates();
@@ -130,8 +143,61 @@ public final class MujiCallCoordinator implements CallIntegration.Callback, Ongo
         notifyListener(stateSnapshot);
     }
 
+    /** Inject shared resources before a peer builds its first local SDP offer. */
+    public void preparePeerSession(final JingleRtpConnection connection) {
+        Preconditions.checkNotNull(connection);
+        Preconditions.checkArgument(
+                connection.getId().account.getUuid().equals(conversation.getAccount().getUuid()),
+                "Peer session belongs to a different account");
+        Preconditions.checkArgument(
+                !connection.getWith().asBareJid().equals(room),
+                "A room cannot be registered as its own peer");
+        connection.setSharedWebRTCResources(webRTCSharedResources);
+        connection.setMujiCallCoordinator(this);
+    }
+
+    /** Keep a published room call ready for participants who join after the host starts. */
+    public void startWaitingForParticipants() {
+        final Set<Media> media;
+        synchronized (this) {
+            Preconditions.checkState(!ending, "Cannot start a room call that is ending");
+            Preconditions.checkState(hasCodecCompatibility(), "MUJI codec map is not configured");
+            Preconditions.checkState(peerSessions.isEmpty());
+            Preconditions.checkState(!started, "MUJI room call has already started");
+            started = true;
+            audioRoutingStarted = true;
+            media = sharedMedia;
+        }
+        callIntegration.setVideoState(
+                Media.audioOnly(media)
+                        ? VideoProfile.STATE_AUDIO_ONLY
+                        : VideoProfile.STATE_BIDIRECTIONAL);
+        callIntegration.setInitialAudioDevice(CallIntegration.initialAudioDevice(media));
+        callIntegration.setDialing();
+        callIntegration.startAudioRouting();
+        notifyListener(getParticipantStates());
+    }
+
+    public synchronized boolean isStarted() {
+        return started;
+    }
+
     public synchronized List<JingleRtpConnection> getPeerSessions() {
         return Collections.unmodifiableList(new ArrayList<>(peerSessions.values()));
+    }
+
+    @Nullable
+    public synchronized JingleRtpConnection getPeerSession(final Jid participant) {
+        return peerSessions.get(participant.asBareJid());
+    }
+
+    public synchronized void replacePeerSessionForCollision(
+            final JingleRtpConnection connection) {
+        final Jid participant = connection.getWith().asBareJid();
+        Preconditions.checkState(
+                peerSessions.get(participant) == connection,
+                "Peer session is not registered with this coordinator");
+        peerSessions.remove(participant);
     }
 
     /** Returns the latest state for active and recently ended participants. */
@@ -140,7 +206,7 @@ public final class MujiCallCoordinator implements CallIntegration.Callback, Ongo
     }
 
     public synchronized RtpEndUserState getAggregateState() {
-        return aggregateState(participantStates, ending);
+        return aggregateState(participantStates, ending, started && peerSessions.isEmpty());
     }
 
     public synchronized boolean isEnding() {
@@ -233,6 +299,53 @@ public final class MujiCallCoordinator implements CallIntegration.Callback, Ongo
                         && peerCompatibility.sharedPayloadTypes().keySet()
                                 .equals(expectedPayloadTypes.keySet()),
                 "MUJI peer is not using the room-wide payload mapping");
+    }
+
+    public List<Jid> getReadyMujiParticipants() {
+        final LinkedHashSet<Jid> participants = new LinkedHashSet<>();
+        for (final MucOptions.User user : conversation.getMucOptions().getUsers()) {
+            if (user.resource() == null || !user.isInMujiCall() || user.isPreparingMujiCall()) {
+                continue;
+            }
+            final Jid realJid = user.getRealJid();
+            if (realJid == null
+                    || realJid
+                            .asBareJid()
+                            .equals(conversation.getAccount().getJid().asBareJid())) {
+                continue;
+            }
+            participants.add(realJid.asBareJid());
+        }
+        return ImmutableList.copyOf(participants);
+    }
+
+    public synchronized boolean isPeerCompatible(final Jid participant) {
+        if (!hasCodecCompatibility()) {
+            return false;
+        }
+        final Muji announcement =
+                conversation.getMucOptions().getUsers().stream()
+                        .filter(
+                                user -> {
+                                    final Jid realJid = user.getRealJid();
+                                    return user.resource() != null
+                                            && user.isInMujiCall()
+                                            && !user.isPreparingMujiCall()
+                                            && realJid != null
+                                            && realJid.asBareJid().equals(participant.asBareJid());
+                                })
+                        .map(MucOptions.User::getMuji)
+                        .findFirst()
+                        .orElse(null);
+        if (announcement == null) {
+            return false;
+        }
+        final MujiCodecCompatibility.Result compatibility =
+                MujiCodecCompatibility.inspect(
+                        List.of(agreedContentMap.toMujiAnnouncement(), announcement));
+        return compatibility.compatible()
+                && compatibility.sharedPayloadTypes().keySet()
+                        .equals(codecCompatibility.sharedPayloadTypes().keySet());
     }
 
     public Jid getRoom() {
@@ -405,10 +518,16 @@ public final class MujiCallCoordinator implements CallIntegration.Callback, Ongo
     private void notifyListener(
             @Nullable final Listener listener,
             final Map<Jid, RtpEndUserState> stateSnapshot) {
-        final RtpEndUserState aggregateState = aggregateState(stateSnapshot, isEnding());
+        final boolean waiting;
+        final boolean ending;
+        synchronized (this) {
+            waiting = started && peerSessions.isEmpty();
+            ending = this.ending;
+        }
+        final RtpEndUserState aggregateState = aggregateState(stateSnapshot, ending, waiting);
         service.notifyMujiCallUpdate(
                 conversation.getAccount(), room, id.sessionId, stateSnapshot, aggregateState);
-        if (!isEnding() && getActiveParticipantCount() > 0 && !getMedia().isEmpty()) {
+        if (!isEnding() && isStarted() && !getMedia().isEmpty()) {
             service.setOngoingCall(
                     id, getMedia(), aggregateState == RtpEndUserState.RECONNECTING);
         } else if (getActiveParticipantCount() == 0) {
@@ -440,7 +559,12 @@ public final class MujiCallCoordinator implements CallIntegration.Callback, Ongo
     }
 
     private static RtpEndUserState aggregateState(
-            final Map<Jid, RtpEndUserState> states, final boolean ending) {
+            final Map<Jid, RtpEndUserState> states,
+            final boolean ending,
+            final boolean waiting) {
+        if (waiting && !ending) {
+            return RtpEndUserState.CONNECTING;
+        }
         if (states.isEmpty()) {
             return ending ? RtpEndUserState.ENDED : RtpEndUserState.CONNECTING;
         }

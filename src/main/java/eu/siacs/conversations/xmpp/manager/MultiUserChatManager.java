@@ -533,6 +533,27 @@ public class MultiUserChatManager extends AbstractManager {
                 MoreExecutors.directExecutor());
     }
 
+    /** Publish negotiated media after preparation and install the same map on its coordinator. */
+    public MujiCodecCompatibility.Result publishMujiMediaAndConfigureCoordinator(
+            final Conversation conversation,
+            final MujiCallCoordinator coordinator,
+            final RtpContentMap proposedMedia) {
+        Preconditions.checkArgument(
+                conversation.getAccount().getUuid().equals(coordinator.getAccountUuid()),
+                "MUJI coordinator belongs to a different account");
+        Preconditions.checkArgument(
+                conversation.getAddress().asBareJid().equals(coordinator.getRoom()),
+                "MUJI coordinator belongs to a different room");
+        final MujiCodecCompatibility.Result compatibility =
+                publishMujiMediaIfCompatible(conversation, proposedMedia);
+        if (compatibility.compatible()) {
+            coordinator.setCodecCompatibility(compatibility, proposedMedia);
+        } else {
+            publishMujiPresence(conversation, null);
+        }
+        return compatibility;
+    }
+
     private void removePendingMujiPreparation(
             final Jid room, final PendingMujiPreparation pending) {
         final ScheduledFuture<?> timeout;

@@ -141,10 +141,12 @@ import eu.siacs.conversations.xmpp.Jid;
 import eu.siacs.conversations.xmpp.XmppConnection;
 import eu.siacs.conversations.xmpp.jingle.AbstractJingleConnection;
 import eu.siacs.conversations.xmpp.jingle.JingleFileTransferConnection;
+import eu.siacs.conversations.xmpp.jingle.JingleRtpConnection;
 import eu.siacs.conversations.xmpp.jingle.Media;
 import eu.siacs.conversations.xmpp.jingle.MujiCallCoordinator;
 import eu.siacs.conversations.xmpp.jingle.OngoingRtpSession;
 import eu.siacs.conversations.xmpp.jingle.RtpCapability;
+import eu.siacs.conversations.xmpp.jingle.RtpContentMap;
 import eu.siacs.conversations.xmpp.manager.BlockingManager;
 import eu.siacs.conversations.xmpp.manager.ChatStateManager;
 import eu.siacs.conversations.xmpp.manager.HttpUploadManager;
@@ -641,7 +643,6 @@ public class ConversationFragment extends XmppFragment
                                 c.getMucOptions().isPrivateAndNonAnonymous()
                                         ? R.string.action_muc_details
                                         : R.string.channel_details);
-                        menuCall.setVisible(false);
                         final XmppConnectionService service = getXmppConnectionService();
                         final var manager =
                                 c.getAccount().getXmppConnection().getManager(JingleManager.class);
@@ -649,10 +650,20 @@ public class ConversationFragment extends XmppFragment
                                 service == null
                                         ? Optional.absent()
                                         : manager.getOngoingRtpConnection(c.getContact());
-                        menuOngoingCall.setVisible(
+                        final boolean hasMujiCall =
                                 ongoingRtpSession.isPresent()
                                         && ongoingRtpSession.get()
-                                                instanceof MujiCallCoordinator);
+                                                instanceof MujiCallCoordinator;
+                        final boolean canStartMujiCall =
+                                service != null
+                                        && c.getMucOptions().online()
+                                        && c.getMucOptions().isPrivateAndNonAnonymous()
+                                        && !hasMujiCall;
+                        menuOngoingCall.setVisible(hasMujiCall);
+                        menuCall.setVisible(canStartMujiCall);
+                        menuVideoCall.setVisible(
+                                canStartMujiCall
+                                        && requireXmppActivity().isCameraFeatureAvailable());
                     } else {
                         final var manager =
                                 c.getAccount().getXmppConnection().getManager(JingleManager.class);
@@ -2022,6 +2033,10 @@ public class ConversationFragment extends XmppFragment
     }
 
     private void triggerRtpSession(final String action) {
+        if (conversation.getMode() == Conversation.MODE_MULTI) {
+            startMujiCall(action);
+            return;
+        }
         if (JingleManager.isBusy(requireXmppActivity().xmppConnectionService.getAccounts())) {
             Toast.makeText(getActivity(), R.string.only_one_call_at_a_time, Toast.LENGTH_LONG)
                     .show();
@@ -2048,6 +2063,323 @@ public class ConversationFragment extends XmppFragment
                     fullJid -> {
                         triggerRtpSession(contact.getAccount(), fullJid, action);
                     });
+        }
+    }
+
+    private void startMujiCall(final String action) {
+        final XmppConnectionService service = getXmppConnectionService();
+        if (service == null
+                || !conversation.getMucOptions().online()
+                || !conversation.getMucOptions().isPrivateAndNonAnonymous()) {
+            Toast.makeText(
+                            requireContext(),
+                            R.string.muji_call_requires_supported_room,
+                            Toast.LENGTH_LONG)
+                    .show();
+            return;
+        }
+        if (requireXmppActivity().mUseTor || conversation.getAccount().isOnion()) {
+            Toast.makeText(requireContext(), R.string.disable_tor_to_make_call, Toast.LENGTH_SHORT)
+                    .show();
+            return;
+        }
+        final boolean video = RtpSessionActivity.ACTION_MAKE_VIDEO_CALL.equals(action);
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.muji_call_confirmation_title)
+                .setMessage(
+                        getString(
+                                R.string.muji_call_confirmation_message,
+                                MujiCallCoordinator.MAX_PARTICIPANTS))
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(
+                        video ? R.string.video_call : R.string.audio_call,
+                        (dialog, which) -> prepareMujiCall(action))
+                .show();
+    }
+
+    private void prepareMujiCall(final String action) {
+        final XmppConnectionService service = getXmppConnectionService();
+        if (service == null) {
+            return;
+        }
+        if (JingleManager.isBusy(service.getAccounts())) {
+            Toast.makeText(requireContext(), R.string.only_one_call_at_a_time, Toast.LENGTH_LONG)
+                    .show();
+            return;
+        }
+        final MultiUserChatManager multiUserChatManager =
+                conversation
+                        .getAccount()
+                        .getXmppConnection()
+                        .getManager(MultiUserChatManager.class);
+        Futures.addCallback(
+                multiUserChatManager.prepareMuji(conversation),
+                new FutureCallback<>() {
+                    @Override
+                    public void onSuccess(@Nullable Void ignored) {
+                        if (!isAdded()) {
+                            clearPreparingMujiPresence(multiUserChatManager);
+                            return;
+                        }
+                        startMujiCallAfterPreparation(action, multiUserChatManager);
+                    }
+
+                    @Override
+                    public void onFailure(@NonNull Throwable throwable) {
+                        if (isAdded()) {
+                            Toast.makeText(
+                                            requireContext(),
+                                            R.string.muji_call_setup_failed,
+                                            Toast.LENGTH_LONG)
+                                    .show();
+                        }
+                    }
+                },
+                MainThreadExecutor.getInstance());
+    }
+
+    private void startMujiCallAfterPreparation(
+            final String action, final MultiUserChatManager multiUserChatManager) {
+        final XmppConnectionService service = getXmppConnectionService();
+        if (service == null) {
+            clearPreparingMujiPresence(multiUserChatManager);
+            return;
+        }
+        final List<Jid> participants = readyMujiParticipants();
+        final Jid offerParticipant = selectMujiOfferParticipant(participants);
+        if (offerParticipant == null) {
+            clearPreparingMujiPresence(multiUserChatManager);
+            Toast.makeText(
+                            requireContext(),
+                            R.string.muji_call_no_compatible_participants,
+                            Toast.LENGTH_LONG)
+                    .show();
+            return;
+        }
+        if (participants.size() + 1 > MujiCallCoordinator.MAX_PARTICIPANTS) {
+            clearPreparingMujiPresence(multiUserChatManager);
+            Toast.makeText(
+                            requireContext(),
+                            getString(
+                                    R.string.muji_call_limit_reached,
+                                    participants.size(),
+                                    MujiCallCoordinator.MAX_PARTICIPANTS),
+                            Toast.LENGTH_LONG)
+                    .show();
+            return;
+        }
+        final var account = conversation.getAccount();
+        if (account.setOption(Account.OPTION_SOFT_DISABLED, false)) {
+            service.updateAccount(account);
+        }
+        final JingleManager jingleManager =
+                account.getXmppConnection().getManager(JingleManager.class);
+        final MujiCallCoordinator coordinator;
+        try {
+            coordinator = jingleManager.getOrCreateMujiCallCoordinator(conversation);
+        } catch (final RuntimeException e) {
+            clearPreparingMujiPresence(multiUserChatManager);
+            Toast.makeText(
+                            requireContext(),
+                            R.string.muji_call_setup_failed,
+                            Toast.LENGTH_LONG)
+                    .show();
+            return;
+        }
+        final JingleRtpConnection preparedPeer;
+        try {
+            preparedPeer =
+                    jingleManager.prepareMujiPeerSession(
+                            coordinator,
+                            offerParticipant,
+                            RtpSessionActivity.actionToMedia(action));
+        } catch (final RuntimeException e) {
+            coordinator.endCall();
+            clearPreparingMujiPresence(multiUserChatManager);
+            Toast.makeText(
+                            requireContext(),
+                            R.string.muji_call_setup_failed,
+                            Toast.LENGTH_LONG)
+                    .show();
+            return;
+        }
+        Futures.addCallback(
+                preparedPeer.prepareMujiSessionInitiate(),
+                new FutureCallback<>() {
+                    @Override
+                    public void onSuccess(final RtpContentMap proposedMedia) {
+                        startMujiCallWithPreparedMedia(
+                                action,
+                                service,
+                                jingleManager,
+                                multiUserChatManager,
+                                coordinator,
+                                preparedPeer,
+                                proposedMedia);
+                    }
+
+                    @Override
+                    public void onFailure(@NonNull final Throwable throwable) {
+                        abandonMujiCall(
+                                coordinator,
+                                preparedPeer,
+                                R.string.muji_call_setup_failed);
+                    }
+                },
+                MainThreadExecutor.getInstance());
+    }
+
+    private void startMujiCallWithPreparedMedia(
+            final String action,
+            final XmppConnectionService service,
+            final JingleManager jingleManager,
+            final MultiUserChatManager multiUserChatManager,
+            final MujiCallCoordinator coordinator,
+            final JingleRtpConnection preparedPeer,
+            final RtpContentMap proposedMedia) {
+        if (!isAdded()) {
+            abandonMujiCall(coordinator, preparedPeer, R.string.muji_call_setup_failed);
+            return;
+        }
+        final Set<Media> requestedMedia = RtpSessionActivity.actionToMedia(action);
+        try {
+            final var compatibility =
+                    multiUserChatManager.publishMujiMediaAndConfigureCoordinator(
+                            conversation, coordinator, proposedMedia);
+            if (!compatibility.compatible()) {
+                abandonMujiCall(coordinator, preparedPeer, R.string.muji_call_setup_failed);
+                return;
+            }
+            final Set<Media> agreedMedia = coordinator.getMedia();
+            if (!agreedMedia.equals(requestedMedia)) {
+                abandonMujiCall(
+                        coordinator,
+                        preparedPeer,
+                        requestedMedia.contains(Media.VIDEO)
+                                ? R.string.muji_call_video_not_shared
+                                : R.string.muji_call_setup_failed);
+                return;
+            }
+            final List<Jid> compatibleParticipants = new ArrayList<>();
+            for (final Jid participant : readyMujiParticipants()) {
+                if (coordinator.isPeerCompatible(participant)) {
+                    compatibleParticipants.add(participant);
+                }
+            }
+            if (compatibleParticipants.isEmpty()) {
+                preparedPeer.endCall();
+                coordinator.startWaitingForParticipants();
+                CallIntegrationConnectionService.placeCall(
+                        service,
+                        conversation.getAccount(),
+                        conversation.getAddress(),
+                        agreedMedia);
+                Toast.makeText(
+                                requireContext(),
+                                R.string.muji_call_waiting_for_participants,
+                                Toast.LENGTH_LONG)
+                        .show();
+                return;
+            }
+            if (compatibleParticipants.size() + 1 > MujiCallCoordinator.MAX_PARTICIPANTS) {
+                abandonMujiCall(coordinator, preparedPeer, R.string.muji_call_setup_failed);
+                return;
+            }
+            if (compatibleParticipants.contains(preparedPeer.getWith().asBareJid())) {
+                coordinator.addPeerSession(preparedPeer);
+                preparedPeer.sendPreparedMujiSessionInitiate();
+                for (final Jid participant : compatibleParticipants) {
+                    if (participant.equals(preparedPeer.getWith().asBareJid())) {
+                        continue;
+                    }
+                    initializeMujiPeer(jingleManager, coordinator, participant, agreedMedia);
+                }
+            } else {
+                preparedPeer.endCall();
+                for (final Jid participant : compatibleParticipants) {
+                    initializeMujiPeer(jingleManager, coordinator, participant, agreedMedia);
+                }
+            }
+            if (!coordinator.isStarted()) {
+                coordinator.startWaitingForParticipants();
+            }
+            CallIntegrationConnectionService.placeCall(
+                    service, conversation.getAccount(), conversation.getAddress(), agreedMedia);
+        } catch (final RuntimeException e) {
+            Log.w(Config.LOGTAG, "Unable to start MUJI group call", e);
+            abandonMujiCall(coordinator, preparedPeer, R.string.muji_call_setup_failed);
+        }
+    }
+
+    private void initializeMujiPeer(
+            final JingleManager jingleManager,
+            final MujiCallCoordinator coordinator,
+            final Jid participant,
+            final Set<Media> media) {
+        try {
+            jingleManager.initializeMujiPeerSession(coordinator, participant, media);
+        } catch (final RuntimeException e) {
+            Log.w(Config.LOGTAG, "Unable to start MUJI peer session with " + participant, e);
+        }
+    }
+
+    @Nullable
+    private Jid selectMujiOfferParticipant(final List<Jid> readyParticipants) {
+        if (!readyParticipants.isEmpty()) {
+            return readyParticipants.get(0);
+        }
+        final Jid self = conversation.getAccount().getJid().asBareJid();
+        for (final MucOptions.User user : conversation.getMucOptions().getUsers()) {
+            final Jid realJid = user.getRealJid();
+            if (user.resource() != null && realJid != null && !self.equals(realJid.asBareJid())) {
+                return realJid.asBareJid();
+            }
+        }
+        return null;
+    }
+
+    private List<Jid> readyMujiParticipants() {
+        final List<Jid> participants = new ArrayList<>();
+        for (final MucOptions.User user : conversation.getMucOptions().getUsers()) {
+            if (user.resource() == null || !user.isInMujiCall() || user.isPreparingMujiCall()) {
+                continue;
+            }
+            final Jid realJid = user.getRealJid();
+            if (realJid == null
+                    || realJid
+                            .asBareJid()
+                            .equals(conversation.getAccount().getJid().asBareJid())) {
+                continue;
+            }
+            final Jid participant = realJid.asBareJid();
+            if (!participants.contains(participant)) {
+                participants.add(participant);
+            }
+        }
+        return participants;
+    }
+
+    private void clearPreparingMujiPresence(final MultiUserChatManager multiUserChatManager) {
+        try {
+            multiUserChatManager.publishMujiPresence(conversation, null);
+        } catch (final RuntimeException e) {
+            Log.w(Config.LOGTAG, "Unable to clear preparing MUJI presence", e);
+        }
+    }
+
+    private void abandonMujiCall(
+            final MujiCallCoordinator coordinator,
+            final JingleRtpConnection preparedPeer,
+            final int message) {
+        if (!coordinator.getPeerSessions().contains(preparedPeer)
+                && !preparedPeer.isTerminated()) {
+            preparedPeer.endCall();
+        }
+        if (!coordinator.isEnding() && !coordinator.isFinished()) {
+            coordinator.endCall();
+        }
+        if (isAdded()) {
+            Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show();
         }
     }
 
@@ -2275,6 +2607,24 @@ public class ConversationFragment extends XmppFragment
                 if (Manifest.permission.RECORD_AUDIO.equals(firstDenied)) {
                     res = R.string.no_microphone_permission;
                 } else if (Manifest.permission.CAMERA.equals(firstDenied)) {
+                    if (requestCode == REQUEST_START_VIDEO_CALL
+                            && conversation != null
+                            && conversation.getMode() == Conversation.MODE_MULTI
+                            && requireActivity().checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                                    == PackageManager.PERMISSION_GRANTED) {
+                        new MaterialAlertDialogBuilder(requireContext())
+                                .setTitle(R.string.muji_camera_denied_title)
+                                .setMessage(R.string.muji_camera_denied_audio_fallback)
+                                .setNegativeButton(android.R.string.cancel, null)
+                                .setPositiveButton(
+                                        R.string.audio_call,
+                                        (dialog, which) ->
+                                                startMujiCall(
+                                                        RtpSessionActivity
+                                                                .ACTION_MAKE_VOICE_CALL))
+                                .show();
+                        return;
+                    }
                     res = R.string.no_camera_permission;
                 } else {
                     res = R.string.no_storage_permission;
