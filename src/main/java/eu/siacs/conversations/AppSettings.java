@@ -41,6 +41,7 @@ public class AppSettings {
     public static final String SHOW_DYNAMIC_TAGS = "show_dynamic_tags";
     public static final String OMEMO = "omemo";
     public static final String ALLOW_SCREENSHOTS = "allow_screenshots";
+    public static final String APP_LOCK = "app_lock";
     public static final String RINGTONE = "call_ringtone";
     public static final String DISPLAY_ENTER_KEY = "display_enter_key";
     public static final String SELECTED_ACCOUNT = "selected_account";
@@ -147,6 +148,17 @@ public class AppSettings {
 
     public boolean isAllowScreenshots() {
         return getBooleanPreference(ALLOW_SCREENSHOTS, R.bool.allow_screenshots);
+    }
+
+    public boolean isAppLockEnabled() {
+        return PreferenceManager.getDefaultSharedPreferences(context).getBoolean(APP_LOCK, false);
+    }
+
+    public void setAppLockEnabled(final boolean enabled) {
+        PreferenceManager.getDefaultSharedPreferences(context)
+                .edit()
+                .putBoolean(APP_LOCK, enabled)
+                .apply();
     }
 
     public boolean isColorfulChatBubbles() {

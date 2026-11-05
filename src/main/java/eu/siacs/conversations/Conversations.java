@@ -1,6 +1,7 @@
 package eu.siacs.conversations;
 
 import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
 import android.util.Log;
@@ -11,6 +12,8 @@ import com.google.common.collect.Iterables;
 import eu.siacs.conversations.entities.Account;
 import eu.siacs.conversations.persistance.DatabaseBackend;
 import eu.siacs.conversations.services.EmojiInitializationService;
+import eu.siacs.conversations.ui.AppLockActivity;
+import eu.siacs.conversations.ui.util.AppLockManager;
 import eu.siacs.conversations.ui.util.SettingsUtils;
 import eu.siacs.conversations.utils.ExceptionHelper;
 import java.security.Security;
@@ -18,7 +21,7 @@ import java.util.Collection;
 import java.util.Objects;
 import org.conscrypt.Conscrypt;
 
-public class Conversations extends Application {
+public class Conversations extends Application implements Application.ActivityLifecycleCallbacks {
 
     @SuppressLint("StaticFieldLeak")
     private static Context CONTEXT;
@@ -42,9 +45,12 @@ public class Conversations extends Application {
     private Supplier<Collection<DatabaseBackend.AccountWithOptions>> accountWithOptions =
             Suppliers.memoize(accountWithOptionsSupplier);
 
+    private int startedUiActivities;
+
     @Override
     public void onCreate() {
         super.onCreate();
+        registerActivityLifecycleCallbacks(this);
         installSecurityProvider();
         CONTEXT = this.getApplicationContext();
         EmojiInitializationService.execute(getApplicationContext());
@@ -82,4 +88,38 @@ public class Conversations extends Application {
                         !Objects.requireNonNull(a).isOptionSet(Account.OPTION_DISABLED)
                                 && !a.isOptionSet(Account.OPTION_SOFT_DISABLED));
     }
+
+    @Override
+    public synchronized void onActivityStarted(final Activity activity) {
+        if (!(activity instanceof AppLockActivity)) {
+            startedUiActivities++;
+        }
+    }
+
+    @Override
+    public synchronized void onActivityStopped(final Activity activity) {
+        if (activity instanceof AppLockActivity) {
+            return;
+        }
+        startedUiActivities = Math.max(0, startedUiActivities - 1);
+        if (startedUiActivities == 0 && !activity.isChangingConfigurations()) {
+            AppLockManager.onAppBackground(this);
+        }
+    }
+
+    @Override
+    public void onActivityCreated(final Activity activity, final android.os.Bundle state) {}
+
+    @Override
+    public void onActivityResumed(final Activity activity) {}
+
+    @Override
+    public void onActivityPaused(final Activity activity) {}
+
+    @Override
+    public void onActivitySaveInstanceState(
+            final Activity activity, final android.os.Bundle state) {}
+
+    @Override
+    public void onActivityDestroyed(final Activity activity) {}
 }

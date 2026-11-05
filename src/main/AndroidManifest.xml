@@ -209,6 +209,11 @@
             android:launchMode="singleTask"
             android:windowSoftInputMode="stateUnchanged|adjustResize" />
         <activity
+            android:name=".ui.AppLockActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop" />
+        <activity
             android:name=".ui.ScanActivity"
             android:enableOnBackInvokedCallback="false"
             android:theme="@style/Theme.Conversations3.FullScreen"

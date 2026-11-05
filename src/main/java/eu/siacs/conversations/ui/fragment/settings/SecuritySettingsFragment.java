@@ -1,13 +1,18 @@
 package eu.siacs.conversations.ui.fragment.settings;
 
+import android.app.KeyguardManager;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.os.Bundle;
+import android.provider.Settings;
+import android.view.WindowManager;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.preference.ListPreference;
 import androidx.preference.Preference;
+import androidx.preference.SwitchPreferenceCompat;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.common.base.Strings;
 import eu.siacs.conversations.AppSettings;
@@ -15,6 +20,7 @@ import eu.siacs.conversations.R;
 import eu.siacs.conversations.crypto.OmemoSetting;
 import eu.siacs.conversations.services.MemorizingTrustManager;
 import eu.siacs.conversations.services.QuickConversationsService;
+import eu.siacs.conversations.ui.util.AppLockManager;
 import java.security.KeyStoreException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,8 +36,12 @@ public class SecuritySettingsFragment extends XmppPreferenceFragment {
         final ListPreference omemo = findPreference(AppSettings.OMEMO);
         final ListPreference automaticMessageDeletion =
                 findPreference(AppSettings.AUTOMATIC_MESSAGE_DELETION);
+        final SwitchPreferenceCompat appLock = findPreference(AppSettings.APP_LOCK);
         final Preference serverConnection = findPreference(SERVER_CONNECTION);
-        if (omemo == null || automaticMessageDeletion == null || serverConnection == null) {
+        if (omemo == null
+                || automaticMessageDeletion == null
+                || appLock == null
+                || serverConnection == null) {
             throw new IllegalStateException("The preference resource file is missing preferences");
         }
         omemo.setSummaryProvider(new OmemoSummaryProvider());
@@ -39,6 +49,43 @@ public class SecuritySettingsFragment extends XmppPreferenceFragment {
                 automaticMessageDeletion,
                 R.array.automatic_message_deletion_values,
                 value -> timeframeValueToName(requireContext(), value));
+        appLock.setOnPreferenceChangeListener(
+                (preference, newValue) -> {
+                    final boolean enable = Boolean.TRUE.equals(newValue);
+                    if (enable) {
+                        final KeyguardManager keyguardManager =
+                                requireContext().getSystemService(KeyguardManager.class);
+                        if (keyguardManager == null || !keyguardManager.isDeviceSecure()) {
+                            new MaterialAlertDialogBuilder(requireContext())
+                                    .setTitle(R.string.app_lock_title)
+                                    .setMessage(R.string.app_lock_requires_device_credential)
+                                    .setPositiveButton(
+                                            R.string.open_device_security_settings,
+                                            (dialog, which) ->
+                                                    startActivity(
+                                                            new Intent(
+                                                                    Settings.ACTION_SECURITY_SETTINGS)))
+                                    .setNegativeButton(R.string.cancel, null)
+                                    .show();
+                            return false;
+                        }
+                    }
+                    AppLockManager.onSettingChanged();
+                    if (enable) {
+                        requireActivity()
+                                .getWindow()
+                                .addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+                    } else if (new AppSettings(requireContext()).isAllowScreenshots()) {
+                        requireActivity()
+                                .getWindow()
+                                .clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+                    } else {
+                        requireActivity()
+                                .getWindow()
+                                .addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+                    }
+                    return true;
+                });
         if (QuickConversationsService.isQuicksy()) {
             serverConnection.setVisible(false);
         }

@@ -80,9 +80,11 @@
 
 ## 3. Close everyday privacy gaps
 
-- [ ] Define the at-rest protection goal and choose whether to implement local database encryption, an app lock, or both.
-- [ ] Design key storage and recovery around Android Keystore and device credentials; document what happens if a key is lost or the device is migrated.
-- [ ] Encrypt sensitive local records, including chat history and encryption keys, if database encryption is selected.
-- [ ] Add an app lock using device credentials or biometrics if selected, with lock timing and app-switcher privacy controls.
-- [ ] Preserve backup and restore behavior, and define safe database migration, logout, and local-data deletion flows.
+- [x] Define the privacy goal as gating chat access when someone returns to an unattended, unlocked phone; choose a device-credential app lock for this release.
+- [x] Use Android's existing secure screen lock for authentication. Lisolo stores no additional PIN or encryption key; if the device no longer has a secure lock, disable app lock rather than strand the user.
+- [x] Defer SQLCipher database encryption. The database remains in Android's app-private storage and this app lock does not encrypt the database or protect extracted app data.
+- [x] Add an app lock that requests the device credential whenever Lisolo returns from the background and hides task previews and screenshots while enabled.
+- [x] Keep the database schema and encrypted account backup format unchanged. The app-lock preference follows the existing Android settings backup rules; the unlocked session state is memory-only, and the app disables the lock if a restored device has no secure screen lock.
+- [ ] Verify app-lock behavior across activity transitions, process recreation, rotation, lock-screen removal, and app-switcher previews.
+- [x] Preserve the existing account logout and local-data deletion paths; no database migration is needed because database storage is unchanged.
 - [ ] Document exactly what local encryption and app lock protect, including any limits such as data visible while the app is unlocked.

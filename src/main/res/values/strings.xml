@@ -1118,6 +1118,17 @@
     <string name="group_report_occupant_id_unavailable">This room does not provide the participant ID needed for a report. No report was sent. Contact a room moderator or administrator.</string>
     <string name="group_report_privacy_note">This room advertises experimental participant reporting. The report sends the participant ID, reason, optional note and message ID when available to the room. Message text is not included, but the room may use the ID to find it.</string>
     <string name="group_report_sent">Report submitted to the room.</string>
+    <string name="app_lock_title">App lock</string>
+    <string name="app_lock_summary">Require your device screen lock when returning to Lisolo. Hides app previews and blocks screenshots. This does not encrypt the database.</string>
+    <string name="app_lock_description">Unlock with your device screen lock to continue.</string>
+    <string name="app_lock_auth_title">Unlock Lisolo</string>
+    <string name="app_lock_auth_description">Confirm your device screen lock to open Lisolo.</string>
+    <string name="app_lock_auth_cancelled">Authentication was canceled. Unlock Lisolo to continue.</string>
+    <string name="app_lock_auth_unavailable">Device authentication could not be opened. Try again.</string>
+    <string name="app_lock_disabled_no_device_credential">App lock was turned off because this device has no secure screen lock.</string>
+    <string name="app_lock_requires_device_credential">Set a secure screen lock on your device before enabling app lock.</string>
+    <string name="open_device_security_settings">Open device security settings</string>
+    <string name="unlock">Unlock</string>
     <string name="privacy_policy">Privacy policy</string>
     <string name="contact_list_integration_not_available">Contact list integration is not available</string>
     <string name="call_integration_not_available">Call integration not available!</string>
