@@ -60,14 +60,17 @@ in plaintext and is readable there
 **Backup** — encrypted local backups with restore on a new device; see
 [docs/user/backup.md](docs/user/backup.md)
 
+**Local privacy** — device-credential app lock and its limits; see
+[docs/user/local_privacy.md](docs/user/local_privacy.md)
+
 **Crash reports** — after a crash the app offers to send the stack trace to
 `bugs@xmpp.zungvi.net`, as a plaintext message from the user's own account. On by default,
 declinable permanently.
 
 ## Not supported
 
-- Group calls (no XEP-0272 / Muji)
-- In-app abuse reporting (no XEP-0377); blocking only
+- Group-call interoperability is not yet verified; the initial MUJI mesh is capped at five participants.
+- Abuse reporting requires server support for direct XEP-0377 reports; group participant reporting is experimental and requires room support.
 - On-device translation — everything goes through the server
 - Swahili translation is unreliable; the server model misreads tense and clock times
 

@@ -87,4 +87,4 @@
 - [x] Keep the database schema and encrypted account backup format unchanged. The app-lock preference follows the existing Android settings backup rules; the unlocked session state is memory-only, and the app disables the lock if a restored device has no secure screen lock.
 - [ ] Verify app-lock behavior across activity transitions, process recreation, rotation, lock-screen removal, and app-switcher previews.
 - [x] Preserve the existing account logout and local-data deletion paths; no database migration is needed because database storage is unchanged.
-- [ ] Document exactly what local encryption and app lock protect, including any limits such as data visible while the app is unlocked.
+- [x] Document what app lock protects and its limits, including the unencrypted database, media, notification previews, and data visible while the app is unlocked.
