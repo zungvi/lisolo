@@ -63,7 +63,8 @@
 
 ### Message expiry, live location, and abuse reporting
 
-- [ ] Define message expiry behavior, including whether expiry is local or synchronized, how it is displayed, and what happens to archived copies.
+- [x] Define message expiry behavior: carry a per-message timer using XEP-0466; start each device's countdown when that device first marks the message read; remove local content on expiry and leave a lightweight “Message expired” marker. This synchronizes the requested duration with compatible clients, while deletion remains best-effort and local to each device. Keep offline delivery enabled; do not claim that server MAM archives, recipient backups, screenshots, or exports are deleted.
+- [ ] Implement the defined expiry behavior, including timer controls, XEP-0466 parsing/sending and discovery, per-device read-start persistence, local content/attachment cleanup, and an expired marker that prevents MAM replay from restoring the content.
 - [ ] Implement live location sharing with explicit duration, visible sharing status, and a clear stop-sharing action; request background location only when needed.
 - [ ] Add in-app abuse reporting for direct chats and group chats, including the report details sent and confirmation to the user.
 - [ ] Implement and advertise XEP-0377 reporting where supported, with a clear fallback when the server does not support it.
