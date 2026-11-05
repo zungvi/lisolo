@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="?dialogPreferredPadding">
+
+        <TextView
+            android:id="@+id/privacy_note"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="?textAppearanceBodyMedium" />
+
+        <RadioGroup
+            android:id="@+id/reason_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp">
+
+            <RadioButton
+                android:id="@+id/reason_spam"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="@string/report_reason_spam" />
+
+            <RadioButton
+                android:id="@+id/reason_abuse"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/report_reason_abuse" />
+        </RadioGroup>
+
+        <EditText
+            android:id="@+id/details"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="top|start"
+            android:hint="@string/report_optional_details"
+            android:inputType="textCapSentences|textMultiLine"
+            android:maxLength="1000"
+            android:minLines="3" />
+    </LinearLayout>
+</layout>

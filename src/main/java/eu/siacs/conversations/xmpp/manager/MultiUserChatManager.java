@@ -60,10 +60,13 @@ import im.conversations.android.xmpp.model.muc.user.Invite;
 import im.conversations.android.xmpp.model.muc.user.MucUser;
 import im.conversations.android.xmpp.model.occupant.OccupantId;
 import im.conversations.android.xmpp.model.pgp.Signed;
+import im.conversations.android.xmpp.model.reporting.Report;
+import im.conversations.android.xmpp.model.reporting.ReportParticipant;
 import im.conversations.android.xmpp.model.stanza.Iq;
 import im.conversations.android.xmpp.model.stanza.Message;
 import im.conversations.android.xmpp.model.stanza.Presence;
 import im.conversations.android.xmpp.model.stanza.Stanza;
+import im.conversations.android.xmpp.model.unique.StanzaId;
 import im.conversations.android.xmpp.model.vcard.update.VCardUpdate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -72,6 +75,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -1307,6 +1311,30 @@ public class MultiUserChatManager extends AbstractManager {
         mucOwner.addExtension(data);
         return Futures.transform(
                 this.connection.sendIqPacket(iq), response -> null, MoreExecutors.directExecutor());
+    }
+
+    public ListenableFuture<Iq> reportParticipant(
+            final Conversation conversation,
+            final String occupantId,
+            final String reason,
+            @Nullable final String details,
+            @Nullable final String serverMsgId) {
+        final var room = conversation.getAddress().asBareJid();
+        final var iq = new Iq(Iq.Type.SET, room);
+        final var participant = iq.addExtension(new ReportParticipant());
+        final var reportedOccupant = participant.addExtension(new OccupantId());
+        reportedOccupant.setAttribute("id", occupantId);
+        final var report = participant.addExtension(new Report());
+        report.setReason(reason);
+        if (!Strings.isNullOrEmpty(serverMsgId)) {
+            final var stanzaId = new StanzaId(serverMsgId);
+            stanzaId.setBy(room);
+            report.addExtension(stanzaId);
+        }
+        if (!Strings.isNullOrEmpty(details)) {
+            report.setText(details, Locale.getDefault());
+        }
+        return this.connection.sendIqPacket(iq);
     }
 
     public ListenableFuture<Void> fetchMembers(final Conversation conversation) {

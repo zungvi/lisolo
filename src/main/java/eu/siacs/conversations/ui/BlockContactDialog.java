@@ -88,10 +88,12 @@ public final class BlockContactDialog {
                 (dialog, which) -> {
                     if (isBlocked) {
                         xmppActivity.xmppConnectionService.sendUnblockRequest(blockable);
+                    } else if (binding.reportSpam.isChecked()) {
+                        AbuseReportDialog.showDirect(xmppActivity, blockable, serverMsgId);
                     } else {
                         boolean toastShown = false;
                         if (xmppActivity.xmppConnectionService.sendBlockRequest(
-                                blockable, binding.reportSpam.isChecked(), serverMsgId)) {
+                                blockable, false, null)) {
                             Toast.makeText(
                                             xmppActivity,
                                             R.string.corresponding_chats_closed,

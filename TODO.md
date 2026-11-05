@@ -74,8 +74,9 @@
   - [x] Send location updates as corrections to one geo message, use the conversation's encryption, and keep the selected expiry duration active through process recreation where Android permits.
   - [x] Show an ongoing notification with the recipient, end time, and Stop action; also expose Stop in the conversation menu and announce when sharing ends.
 - [ ] Verify live location on Android 14+, including approximate-location permission, background updates, process recreation, expiry, notification Stop, and direct/group conversations with OMEMO.
-- [ ] Add in-app abuse reporting for direct chats and group chats, including the report details sent and confirmation to the user.
-- [ ] Implement and advertise XEP-0377 reporting where supported, with a clear fallback when the server does not support it.
+- [x] Add in-app abuse reporting for direct chats and group chats, including an optional report note, a clear explanation of what is sent, and success or failure confirmation.
+- [x] Send direct reports with XEP-0377 when both reporting and blocking are advertised; explain unsupported servers and offer blocking as a separate action.
+- [x] Gate experimental group participant reports on the room's `urn:xmpp:gcreport:0` feature and an available occupant ID; disclose the experimental behavior and explain when no report can be sent.
 
 ## 3. Close everyday privacy gaps
 

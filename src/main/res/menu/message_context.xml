@@ -11,8 +11,8 @@
         android:visible="false"/>
 
     <item
-        android:id="@+id/action_report_and_block"
-        android:title="@string/report_spam"
+        android:id="@+id/action_report_abuse"
+        android:title="@string/report_abuse"
         android:visible="false" />
 
     <item

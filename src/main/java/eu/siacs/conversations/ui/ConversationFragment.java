@@ -1748,7 +1748,7 @@ public class ConversationFragment extends XmppFragment
             requireActivity().getMenuInflater().inflate(R.menu.message_context, menu);
             menu.setHeaderTitle(R.string.message_options);
             final MenuItem addReaction = menu.findItem(R.id.action_add_reaction);
-            final MenuItem reportAndBlock = menu.findItem(R.id.action_report_and_block);
+            final MenuItem reportAbuse = menu.findItem(R.id.action_report_abuse);
             final MenuItem openWith = menu.findItem(R.id.open_with);
             final MenuItem copyMessage = menu.findItem(R.id.copy_message);
             final MenuItem translateMessage = menu.findItem(R.id.translate_message);
@@ -1773,14 +1773,12 @@ public class ConversationFragment extends XmppFragment
             final Conversational conversational = m.getConversation();
             final var connection = conversational.getAccount().getXmppConnection();
             if (m.getStatus() == Message.STATUS_RECEIVED
-                    && conversational instanceof Conversation c) {
-                if (c.isWithStranger()
-                        && m.getServerMsgId() != null
-                        && !c.isBlocked()
-                        && connection != null
-                        && connection.getManager(BlockingManager.class).hasSpamReporting()) {
-                    reportAndBlock.setVisible(true);
-                }
+                    && conversational instanceof Conversation c
+                    && (c.getMode() == Conversational.MODE_SINGLE
+                            || c.getMode() == Conversational.MODE_MULTI)
+                    && !c.isBlocked()
+                    && connection != null) {
+                reportAbuse.setVisible(true);
             }
             if (conversational instanceof Conversation c) {
                 final var singleOrOccupantId =
@@ -1994,7 +1992,7 @@ public class ConversationFragment extends XmppFragment
                 openWith(selectedMessage);
                 yield true;
             }
-            case R.id.action_report_and_block -> {
+            case R.id.action_report_abuse -> {
                 reportMessage(selectedMessage);
                 yield true;
             }
@@ -3021,8 +3019,13 @@ public class ConversationFragment extends XmppFragment
     }
 
     private void reportMessage(final Message message) {
-        BlockContactDialog.show(
-                requireXmppActivity(), conversation.getContact(), message.getServerMsgId());
+        if (message.getConversation() instanceof Conversation messageConversation
+                && messageConversation.getMode() == Conversational.MODE_MULTI) {
+            AbuseReportDialog.showGroup(requireXmppActivity(), messageConversation, message);
+        } else if (message.getConversation() instanceof Conversation messageConversation) {
+            AbuseReportDialog.showDirect(
+                    requireXmppActivity(), messageConversation, message.getServerMsgId());
+        }
     }
 
     private void showErrorMessage(final Message message) {

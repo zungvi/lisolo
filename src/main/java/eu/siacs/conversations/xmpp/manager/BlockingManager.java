@@ -6,6 +6,7 @@ import androidx.annotation.Nullable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.entities.Blockable;
@@ -24,6 +25,7 @@ import im.conversations.android.xmpp.model.stanza.Iq;
 import im.conversations.android.xmpp.model.unique.StanzaId;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 
 public class BlockingManager extends AbstractManager {
@@ -143,7 +145,8 @@ public class BlockingManager extends AbstractManager {
     }
 
     public boolean hasSpamReporting() {
-        return getManager(DiscoManager.class).hasServerFeature(Namespace.REPORTING);
+        return hasFeature()
+                && getManager(DiscoManager.class).hasServerFeature(Namespace.REPORTING);
     }
 
     private static Set<Jid> itemsAsAddresses(final Collection<Item> items) {
@@ -206,6 +209,57 @@ public class BlockingManager extends AbstractManager {
         } else {
             return false;
         }
+    }
+
+    public ListenableFuture<Iq> reportAndBlock(
+            @NonNull final Blockable blockable,
+            @NonNull final String reason,
+            @Nullable final String details,
+            @Nullable final String serverMsgId) {
+        final var address = blockable.getBlockedAddress();
+        final var iq = new Iq(Iq.Type.SET);
+        final var block = iq.addExtension(new Block());
+        final var item = block.addExtension(new Item());
+        item.setJid(address);
+        final var report = item.addExtension(new Report());
+        report.setReason(reason);
+        if (serverMsgId != null) {
+            final var stanzaId = new StanzaId(serverMsgId);
+            // StanzaIdManager extracts this ID using the account's bare JID as its issuer.
+            stanzaId.setBy(getAccount().getJid().asBareJid());
+            report.addExtension(stanzaId);
+        }
+        if (details != null && !details.trim().isEmpty()) {
+            report.setText(details, Locale.getDefault());
+        }
+        final var future = this.connection.sendIqPacket(iq);
+        Futures.addCallback(
+                future,
+                new FutureCallback<>() {
+                    @Override
+                    public void onSuccess(final Iq result) {
+                        synchronized (blocklist) {
+                            blocklist.add(address);
+                        }
+                        service.updateBlocklistUi(OnUpdateBlocklist.Status.BLOCKED);
+                        if (!address.isFullJid()
+                                && service.removeBlockedConversations(getAccount(), address)) {
+                            service.updateConversationUi();
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(@NonNull final Throwable throwable) {
+                        Log.d(
+                                Config.LOGTAG,
+                                getAccount().getJid().asBareJid()
+                                        + ": could not report and block "
+                                        + address,
+                                throwable);
+                    }
+                },
+                MoreExecutors.directExecutor());
+        return future;
     }
 
     public void unblock(@NonNull final Blockable blockable) {
