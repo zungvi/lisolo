@@ -88,5 +88,7 @@
 - [x] Add an app lock that requests the device credential whenever Lisolo returns from the background and hides task previews and screenshots while enabled.
 - [x] Keep the database schema and encrypted account backup format unchanged. The app-lock preference follows the existing Android settings backup rules; the unlocked session state is memory-only, and the app disables the lock if a restored device has no secure screen lock.
 - [ ] Verify app-lock behavior across activity transitions, process recreation, rotation, lock-screen removal, and app-switcher previews.
+  - [x] Route the QR scanner and certificate trust activity through the shared app-lock and screenshot-protection lifecycle; wait to open the camera until authentication succeeds.
+  - Runtime lifecycle and preview checks remain pending on a device.
 - [x] Preserve the existing account logout and local-data deletion paths; no database migration is needed because database storage is unchanged.
 - [x] Document what app lock protects and its limits, including the unencrypted database, media, notification previews, and data visible while the app is unlocked.

@@ -31,7 +31,6 @@ import android.content.Intent;
 import android.os.Bundle;
 
 import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
@@ -41,9 +40,8 @@ import java.util.logging.Logger;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.entities.MTMDecision;
 import eu.siacs.conversations.services.MemorizingTrustManager;
-import eu.siacs.conversations.ui.util.SettingsUtils;
 
-public class MemorizingActivity extends AppCompatActivity implements OnClickListener, OnCancelListener {
+public class MemorizingActivity extends BaseActivity implements OnClickListener, OnCancelListener {
 
 	private final static Logger LOGGER = Logger.getLogger(MemorizingActivity.class.getName());
 
@@ -60,7 +58,6 @@ public class MemorizingActivity extends AppCompatActivity implements OnClickList
 	@Override
 	public void onResume() {
 		super.onResume();
-		SettingsUtils.applyScreenshotSetting(this);
 
 		Intent i = getIntent();
 		decisionId = i.getIntExtra(MemorizingTrustManager.DECISION_INTENT_ID, MTMDecision.DECISION_INVALID);

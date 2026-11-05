@@ -18,7 +18,6 @@
 package eu.siacs.conversations.ui;
 
 import android.Manifest;
-import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -60,14 +59,15 @@ import java.util.Map;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.R;
 import eu.siacs.conversations.ui.service.CameraManager;
-import eu.siacs.conversations.ui.util.SettingsUtils;
+import eu.siacs.conversations.ui.util.AppLockManager;
 import eu.siacs.conversations.ui.widget.ScannerView;
 
 /**
  * @author Andreas Schildbach
  */
 @SuppressWarnings("deprecation")
-public final class ScanActivity extends Activity implements SurfaceTextureListener, ActivityCompat.OnRequestPermissionsResultCallback {
+public final class ScanActivity extends BaseActivity
+		implements SurfaceTextureListener, ActivityCompat.OnRequestPermissionsResultCallback {
 	public static final String INTENT_EXTRA_RESULT = "result";
 
 	public static final int REQUEST_SCAN_QR_CODE = 0x0987;
@@ -182,6 +182,9 @@ public final class ScanActivity extends Activity implements SurfaceTextureListen
 	@Override
 	protected void onResume() {
 		super.onResume();
+		if (AppLockManager.needsAuthentication(this)) {
+			return;
+		}
 		maybeOpenCamera();
 	}
 
