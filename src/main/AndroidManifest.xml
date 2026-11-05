@@ -41,8 +41,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!--    New permissions required to run as foreground service on Android 14.
-            SYSTEM_EXEMPTED is used when the app is on the doze allow list. This is normal
-            and the expected default behaviour. MICROPHONE covers an ongoing call; everything else
+            SYSTEM_EXEMPTED is used when the app is on the doze allow list. MICROPHONE covers an
+            ongoing call, and LOCATION covers user-started live location sharing; everything else
             falls back to SPECIAL_USE (subtype xmpp-im). FOREGROUND_SERVICE_CAMERA is deliberately
             not declared: the service never runs the camera in the background, and Play requires a
             declared foreground service type to match what the app actually does. -->
@@ -50,6 +50,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <!-- this foreground service type permission is exclusively used for import and export backup -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
@@ -113,7 +114,7 @@
         <service
             android:name=".services.XmppConnectionService"
             android:exported="false"
-            android:foregroundServiceType="specialUse|systemExempted|microphone"
+            android:foregroundServiceType="specialUse|systemExempted|microphone|location"
             tools:ignore="ForegroundServicePermission">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"

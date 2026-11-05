@@ -4,12 +4,13 @@ import android.content.pm.ServiceInfo;
 import android.os.Build;
 
 /**
- * Picks the foreground service type {@link XmppConnectionService} announces on Android 14 and
+ * Picks the foreground service types {@link XmppConnectionService} announces on Android 14 and
  * later.
  *
- * <p>Only the microphone is ever claimed for what it actually is: an ongoing call. The connection
- * notification has no matching type of its own, so it falls back to the doze exemption when there
- * is one and to {@code specialUse} (subtype {@code xmpp-im}, declared in the manifest) otherwise.
+ * <p>The microphone is claimed for an ongoing call, and location is claimed only for an active
+ * user-started live location share. The connection notification has no matching type of its own,
+ * so it falls back to the doze exemption when there is one and to {@code specialUse} (subtype
+ * {@code xmpp-im}, declared in the manifest) otherwise.
  *
  * <p>It deliberately never claims {@code camera}. The service does not run the camera in the
  * background, and announcing a type the app does not use is a Play policy violation on top of
@@ -38,6 +39,26 @@ public final class ForegroundServiceType {
             return ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
         }
         return ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
+    }
+
+    /**
+     * Adds the location type only while an active location share has permission to use location.
+     * An ongoing call may use both location and microphone at the same time.
+     */
+    public static int select(
+            final boolean requireMicrophone,
+            final boolean microphonePermission,
+            final boolean ignoringBatteryOptimizations,
+            final boolean requireLocation,
+            final boolean locationPermission) {
+        if (requireLocation && locationPermission) {
+            int type = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION;
+            if (requireMicrophone && microphonePermission) {
+                type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
+            }
+            return type;
+        }
+        return select(requireMicrophone, microphonePermission, ignoringBatteryOptimizations);
     }
 
     public static boolean isSupported() {

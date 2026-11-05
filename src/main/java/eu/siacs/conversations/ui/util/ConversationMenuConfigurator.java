@@ -53,6 +53,9 @@ public class ConversationMenuConfigurator {
         final MenuItem menuAttach = menu.findItem(R.id.action_attach_file);
 
         final boolean visible;
+        final boolean canShareLocation =
+                conversation.getMode() == Conversation.MODE_MULTI
+                        && conversation.getMucOptions().participating();
         if (conversation.getMode() == Conversation.MODE_MULTI) {
             visible =
                     conversation.getAccount().httpUploadAvailable()
@@ -60,8 +63,13 @@ public class ConversationMenuConfigurator {
         } else {
             visible = true;
         }
-        menuAttach.setVisible(visible);
+        menuAttach.setVisible(visible || canShareLocation);
         if (!visible) {
+            menu.findItem(R.id.attach_choose_picture).setVisible(false);
+            menu.findItem(R.id.attach_take_picture).setVisible(false);
+            menu.findItem(R.id.attach_record_video).setVisible(false);
+            menu.findItem(R.id.attach_record_voice).setVisible(false);
+            menu.findItem(R.id.attach_choose_file).setVisible(false);
             return;
         }
         menu.findItem(R.id.attach_record_voice).setVisible(microphoneAvailable);

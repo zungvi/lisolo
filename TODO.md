@@ -69,7 +69,11 @@
   - [x] Add timer controls plus outgoing and incoming stanza handling, including encrypted messages.
   - [x] Start timers when messages are read, expire local text and attachments, and keep expired markers through archive replay.
 - [ ] Verify message expiry across process restarts, MAM replay, attachment cleanup, and clients that support XEP-0466.
-- [ ] Implement live location sharing with explicit duration, visible sharing status, and a clear stop-sharing action; request background location only when needed.
+- [x] Implement live location sharing with explicit duration, visible sharing status, and a clear stop-sharing action; request background location only when needed.
+  - [x] Offer 15-minute, 1-hour, and 8-hour sharing with an explanation of who can see updates and that the final location remains in chat.
+  - [x] Send location updates as corrections to one geo message, use the conversation's encryption, and keep the selected expiry duration active through process recreation where Android permits.
+  - [x] Show an ongoing notification with the recipient, end time, and Stop action; also expose Stop in the conversation menu and announce when sharing ends.
+- [ ] Verify live location on Android 14+, including approximate-location permission, background updates, process recreation, expiry, notification Stop, and direct/group conversations with OMEMO.
 - [ ] Add in-app abuse reporting for direct chats and group chats, including the report details sent and confirmation to the user.
 - [ ] Implement and advertise XEP-0377 reporting where supported, with a clear fallback when the server does not support it.
 

@@ -190,11 +190,13 @@ public class ConversationFragment extends XmppFragment
     public static final int REQUEST_ENCRYPT_MESSAGE = 0x0207;
     public static final int REQUEST_TRUST_KEYS_TEXT = 0x0208;
     public static final int REQUEST_TRUST_KEYS_ATTACHMENTS = 0x0209;
+    private static final int REQUEST_TRUST_KEYS_LIVE_LOCATION = 0x020a;
     public static final int REQUEST_START_DOWNLOAD = 0x0210;
     public static final int REQUEST_ADD_EDITOR_CONTENT = 0x0211;
     public static final int REQUEST_COMMIT_ATTACHMENTS = 0x0212;
     public static final int REQUEST_START_AUDIO_CALL = 0x213;
     public static final int REQUEST_START_VIDEO_CALL = 0x214;
+    private static final int REQUEST_START_LIVE_LOCATION = 0x0216;
     public static final int ATTACHMENT_CHOICE_CHOOSE_IMAGE = 0x0301;
     public static final int ATTACHMENT_CHOICE_TAKE_PHOTO = 0x0302;
     public static final int ATTACHMENT_CHOICE_CHOOSE_FILE = 0x0303;
@@ -213,11 +215,14 @@ public class ConversationFragment extends XmppFragment
     public static final String STATE_MEDIA_PREVIEWS =
             ConversationFragment.class.getName() + ".take_photo_uri";
     private static final String STATE_LAST_MESSAGE_UUID = "state_last_message_uuid";
+    private static final String STATE_PENDING_LIVE_LOCATION_DURATION =
+            "state_pending_live_location_duration";
 
     private final List<Message> messageList = new ArrayList<>();
     private final PendingItem<ActivityResult> postponedActivityResult = new PendingItem<>();
     private final PendingItem<String> pendingConversationsUuid = new PendingItem<>();
     private final PendingItem<ArrayList<Attachment>> pendingMediaPreviews = new PendingItem<>();
+    private long pendingLiveLocationDuration;
     private final PendingItem<Bundle> pendingExtras = new PendingItem<>();
     private final PendingItem<Uri> pendingTakePhotoUri = new PendingItem<>();
     private final PendingItem<ScrollState> pendingScrollState = new PendingItem<>();
@@ -636,6 +641,14 @@ public class ConversationFragment extends XmppFragment
                     if (c == null) {
                         return;
                     }
+                    final var liveLocationService = getXmppConnectionService();
+                    final MenuItem liveLocation = menu.findItem(R.id.attach_live_location);
+                    if (liveLocation != null && liveLocationService != null) {
+                        liveLocation.setTitle(
+                                liveLocationService.isLiveLocationSharing(c)
+                                        ? R.string.stop_live_location
+                                        : R.string.share_live_location);
+                    }
                     if (c.getMode() == Conversation.MODE_MULTI) {
                         menuContactDetails.setVisible(false);
                         menuInviteContact.setVisible(c.getMucOptions().canInvite());
@@ -729,6 +742,17 @@ public class ConversationFragment extends XmppFragment
                         case R.id.attach_record_voice:
                         case R.id.attach_location:
                             handleAttachmentSelection(menuItem);
+                            break;
+                        case R.id.attach_live_location:
+                            if (requireXmppActivity()
+                                    .xmppConnectionService
+                                    .isLiveLocationSharing(conversation)) {
+                                requireXmppActivity()
+                                        .xmppConnectionService
+                                        .stopLiveLocationSharing(true);
+                            } else {
+                                chooseLiveLocationDuration();
+                            }
                             break;
                         case R.id.action_search:
                             startSearch();
@@ -1292,6 +1316,11 @@ public class ConversationFragment extends XmppFragment
             case REQUEST_TRUST_KEYS_ATTACHMENTS:
                 commitAttachments();
                 break;
+            case REQUEST_TRUST_KEYS_LIVE_LOCATION:
+                if (pendingLiveLocationDuration > 0) {
+                    startLiveLocationSharing(pendingLiveLocationDuration);
+                }
+                break;
             case REQUEST_START_AUDIO_CALL:
                 triggerRtpSession(RtpSessionActivity.ACTION_MAKE_VOICE_CALL);
                 break;
@@ -1423,6 +1452,9 @@ public class ConversationFragment extends XmppFragment
 
     private void handleNegativeActivityResult(int requestCode) {
         switch (requestCode) {
+            case REQUEST_TRUST_KEYS_LIVE_LOCATION:
+                pendingLiveLocationDuration = 0;
+                break;
             case ATTACHMENT_CHOICE_TAKE_PHOTO:
                 if (pendingTakePhotoUri.clear()) {
                     Log.d(
@@ -2064,6 +2096,50 @@ public class ConversationFragment extends XmppFragment
         }
     }
 
+    private void chooseLiveLocationDuration() {
+        final CharSequence[] durations =
+                new CharSequence[] {
+                    getText(R.string.live_location_duration_15_minutes),
+                    getText(R.string.live_location_duration_1_hour),
+                    getText(R.string.live_location_duration_8_hours)
+                };
+        final long[] durationMillis = {15 * 60_000L, 60 * 60_000L, 8 * 60 * 60_000L};
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.live_location_duration_title)
+                .setMessage(R.string.live_location_duration_explanation)
+                .setItems(
+                        durations,
+                        (dialog, which) ->
+                                startLiveLocationSharing(durationMillis[which]))
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void startLiveLocationSharing(final long durationMillis) {
+        pendingLiveLocationDuration = durationMillis;
+        if (!hasPermissions(
+                REQUEST_START_LIVE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION)) {
+            return;
+        }
+        if (trustKeysIfNeeded(conversation, REQUEST_TRUST_KEYS_LIVE_LOCATION)) {
+            return;
+        }
+        pendingLiveLocationDuration = 0;
+        final var service = requireXmppActivity().xmppConnectionService;
+        if (service != null) {
+            if (!service.startLiveLocationSharing(conversation, durationMillis)) {
+                Toast.makeText(
+                                requireContext(),
+                                R.string.live_location_unavailable,
+                                Toast.LENGTH_LONG)
+                        .show();
+            } else {
+                requireActivity().invalidateOptionsMenu();
+            }
+        }
+    }
+
     private void triggerRtpSession(final String action) {
         if (conversation.getMode() == Conversation.MODE_MULTI) {
             startMujiCall(action);
@@ -2628,6 +2704,11 @@ public class ConversationFragment extends XmppFragment
                     case REQUEST_START_VIDEO_CALL:
                         triggerRtpSession(RtpSessionActivity.ACTION_MAKE_VIDEO_CALL);
                         break;
+                    case REQUEST_START_LIVE_LOCATION:
+                        if (pendingLiveLocationDuration > 0) {
+                            startLiveLocationSharing(pendingLiveLocationDuration);
+                        }
+                        break;
                     default:
                         attachFile(requestCode);
                         break;
@@ -2636,7 +2717,10 @@ public class ConversationFragment extends XmppFragment
                 @StringRes int res;
                 String firstDenied =
                         getFirstDenied(permissionResult.grantResults, permissionResult.permissions);
-                if (Manifest.permission.RECORD_AUDIO.equals(firstDenied)) {
+                if (requestCode == REQUEST_START_LIVE_LOCATION) {
+                    pendingLiveLocationDuration = 0;
+                    res = R.string.no_location_permission;
+                } else if (Manifest.permission.RECORD_AUDIO.equals(firstDenied)) {
                     res = R.string.no_microphone_permission;
                 } else if (Manifest.permission.CAMERA.equals(firstDenied)) {
                     if (requestCode == REQUEST_START_VIDEO_CALL
@@ -2667,6 +2751,8 @@ public class ConversationFragment extends XmppFragment
                                 Toast.LENGTH_SHORT)
                         .show();
             }
+        } else if (requestCode == REQUEST_START_LIVE_LOCATION) {
+            pendingLiveLocationDuration = 0;
         }
         if (writeGranted(grantResults, permissions)) {
             final var service = getXmppConnectionService();
@@ -3174,6 +3260,8 @@ public class ConversationFragment extends XmppFragment
         if (conversation != null) {
             outState.putString(STATE_CONVERSATION_UUID, conversation.getUuid());
             outState.putString(STATE_LAST_MESSAGE_UUID, lastMessageUuid);
+            outState.putLong(
+                    STATE_PENDING_LIVE_LOCATION_DURATION, pendingLiveLocationDuration);
             final Uri uri = pendingTakePhotoUri.peek();
             if (uri != null) {
                 outState.putString(STATE_PHOTO_URI, uri.toString());
@@ -3190,6 +3278,8 @@ public class ConversationFragment extends XmppFragment
     }
 
     private void processSavedInstanceState(@NonNull final Bundle savedInstanceState) {
+        pendingLiveLocationDuration =
+                savedInstanceState.getLong(STATE_PENDING_LIVE_LOCATION_DURATION, 0);
         final var uuid = savedInstanceState.getString(STATE_CONVERSATION_UUID);
         final ArrayList<Attachment> attachments =
                 savedInstanceState.getParcelableArrayList(STATE_MEDIA_PREVIEWS);

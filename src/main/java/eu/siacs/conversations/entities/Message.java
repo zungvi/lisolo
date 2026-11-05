@@ -129,6 +129,7 @@ public class Message extends AbstractEntity
     private long ephemeralTimer;
     private long ephemeralStartTime;
     private boolean ephemeralExpired;
+    private boolean skipEphemeralTimer;
 
     private Boolean isGeoUri = null;
     private Boolean isEmojisOnly = null;
@@ -526,6 +527,14 @@ public class Message extends AbstractEntity
         this.ephemeralTimer = seconds;
     }
 
+    public boolean skipsEphemeralTimer() {
+        return skipEphemeralTimer;
+    }
+
+    public void setSkipEphemeralTimer(final boolean skip) {
+        this.skipEphemeralTimer = skip;
+    }
+
     /** Returns the local timestamp when this device started the expiry countdown. */
     public long getEphemeralStartTime() {
         return ephemeralStartTime;
@@ -611,6 +620,17 @@ public class Message extends AbstractEntity
         if (this.edits.size() < 128 && !this.edits.contains(edit)) {
             this.edits.add(edit);
         }
+    }
+
+    public void putEditedForContinuousUpdates(String edited, String serverMsgId) {
+        final Edit edit = new Edit(edited, serverMsgId);
+        if (this.edits.contains(edit)) {
+            return;
+        }
+        if (this.edits.size() >= 128) {
+            this.edits.remove(1);
+        }
+        this.edits.add(edit);
     }
 
     public String getBodyLanguage() {

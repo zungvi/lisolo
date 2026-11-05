@@ -81,6 +81,11 @@
                 android:id="@+id/attach_location"
                 android:icon="@drawable/ic_location_pin_24dp"
                 android:title="@string/send_location" />
+
+            <item
+                android:id="@+id/attach_live_location"
+                android:icon="@drawable/ic_location_pin_24dp"
+                android:title="@string/share_live_location" />
         </menu>
     </item>
     <item

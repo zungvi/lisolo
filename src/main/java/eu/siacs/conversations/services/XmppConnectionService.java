@@ -19,6 +19,9 @@ import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.database.ContentObserver;
 import android.graphics.Bitmap;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.media.AudioManager;
 import android.net.ConnectivityManager;
 import android.net.Network;
@@ -29,7 +32,9 @@ import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.Messenger;
 import android.os.PowerManager;
 import android.os.PowerManager.WakeLock;
@@ -152,6 +157,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -192,6 +198,7 @@ public class XmppConnectionService extends Service {
     public static final String ACTION_FCM_MESSAGE_RECEIVED = "fcm_message_received";
     public static final String ACTION_DISMISS_CALL = "dismiss_call";
     public static final String ACTION_END_CALL = "end_call";
+    public static final String ACTION_STOP_LIVE_LOCATION = "stop_live_location";
     public static final String ACTION_PROVISION_ACCOUNT = "provision_account";
     public static final String ACTION_CALL_INTEGRATION_SERVICE_STARTED =
             "call_integration_service_started";
@@ -238,6 +245,15 @@ public class XmppConnectionService extends Service {
     private final AtomicBoolean mOngoingVideoTranscoding = new AtomicBoolean(false);
     private final AtomicBoolean mForceDuringOnCreate = new AtomicBoolean(false);
     private final AtomicReference<OngoingCall> ongoingCall = new AtomicReference<>();
+    private static final String PREF_LIVE_LOCATION_CONVERSATION = "live_location_conversation";
+    private static final String PREF_LIVE_LOCATION_MESSAGE = "live_location_message";
+    private static final String PREF_LIVE_LOCATION_EXPIRY = "live_location_expiry";
+    private static final String PREF_LIVE_LOCATION_COUNTERPART = "live_location_counterpart";
+    private static final String PREF_LIVE_LOCATION_ENCRYPTION = "live_location_encryption";
+    private static final long LIVE_LOCATION_UPDATE_INTERVAL = 60_000L;
+    private static final float LIVE_LOCATION_MIN_DISTANCE_METERS = 50f;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private LiveLocationShare liveLocationShare;
     private final MessageGenerator mMessageGenerator = new MessageGenerator(this);
     public OnContactStatusChanged onContactStatusChanged =
             (contact, online) -> {
@@ -364,6 +380,310 @@ public class XmppConnectionService extends Service {
         final Message message = new Message(conversation, uri.toString(), encryption);
         Message.configurePrivateMessage(message);
         return encryptIfNeededAndSend(message);
+    }
+
+    public boolean isLiveLocationSharing(final Conversation conversation) {
+        return conversation != null
+                && liveLocationShare != null
+                && liveLocationShare.conversation.getUuid().equals(conversation.getUuid());
+    }
+
+    public boolean startLiveLocationSharing(
+            final Conversation conversation, final long durationMillis) {
+        if (conversation == null
+                || durationMillis <= 0
+                || !hasLocationPermission()
+                || getSystemService(LocationManager.class) == null
+                || !hasEnabledLocationProvider()) {
+            return false;
+        }
+        if (liveLocationShare != null) {
+            stopLiveLocationSharing(true);
+        }
+        final long expiresAt = System.currentTimeMillis() + durationMillis;
+        final LiveLocationShare share =
+                new LiveLocationShare(
+                        conversation,
+                        expiresAt,
+                        null,
+                        conversation.getNextEncryption(),
+                        conversation.getNextCounterpart());
+        liveLocationShare = share;
+        persistLiveLocationShare(share);
+        toggleForegroundService();
+        if (!requestLiveLocationUpdates(share)) {
+            stopLiveLocationSharing(false);
+            return false;
+        }
+        share.expiry =
+                () -> {
+                    if (liveLocationShare == share) {
+                        stopLiveLocationSharing(true);
+                    }
+                };
+        mainHandler.postDelayed(share.expiry, durationMillis);
+        mNotificationService.notify(
+                NotificationService.LIVE_LOCATION_NOTIFICATION_ID,
+                mNotificationService.createLiveLocationNotification(conversation, expiresAt));
+        sendLiveLocationStatus(share, durationMillis);
+        return true;
+    }
+
+    public void stopLiveLocationSharing(final boolean announce) {
+        stopLiveLocationSharing(liveLocationShare, announce, true);
+    }
+
+    private void stopLiveLocationSharing(
+            final LiveLocationShare share, final boolean announce, final boolean updateForeground) {
+        if (share == null || liveLocationShare != share) {
+            return;
+        }
+        liveLocationShare = null;
+        if (share.expiry != null) {
+            mainHandler.removeCallbacks(share.expiry);
+        }
+        if (share.locationManager != null && share.listener != null) {
+            try {
+                share.locationManager.removeUpdates(share.listener);
+            } catch (final SecurityException ignored) {
+                // Permission may have been revoked while the share was active.
+            }
+        }
+        clearPersistedLiveLocationShare();
+        if (updateForeground) {
+            toggleForegroundService();
+        }
+        if (announce) {
+            sendLiveLocationEnded(share);
+        }
+    }
+
+    private boolean hasLocationPermission() {
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+                        == PackageManager.PERMISSION_GRANTED
+                || ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                        == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean hasEnabledLocationProvider() {
+        final LocationManager locationManager = getSystemService(LocationManager.class);
+        if (locationManager == null) {
+            return false;
+        }
+        try {
+            return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+                    || locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+        } catch (final SecurityException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private boolean requestLiveLocationUpdates(final LiveLocationShare share) {
+        final LocationManager locationManager = getSystemService(LocationManager.class);
+        if (locationManager == null) {
+            return false;
+        }
+        share.locationManager = locationManager;
+        share.listener =
+                new LocationListener() {
+                    @Override
+                    public void onLocationChanged(@NonNull final Location location) {
+                        publishLiveLocation(share, location);
+                    }
+
+                    @Override
+                    public void onStatusChanged(
+                            final String provider, final int status, final Bundle extras) {}
+
+                    @Override
+                    public void onProviderEnabled(@NonNull final String provider) {}
+
+                    @Override
+                    public void onProviderDisabled(@NonNull final String provider) {}
+                };
+        boolean requested = false;
+        for (final String provider :
+                List.of(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
+            try {
+                if (locationManager.isProviderEnabled(provider)) {
+                    locationManager.requestLocationUpdates(
+                            provider,
+                            LIVE_LOCATION_UPDATE_INTERVAL,
+                            LIVE_LOCATION_MIN_DISTANCE_METERS,
+                            share.listener,
+                            Looper.getMainLooper());
+                    requested = true;
+                    final Location lastKnown = locationManager.getLastKnownLocation(provider);
+                    if (lastKnown != null
+                            && System.currentTimeMillis() - lastKnown.getTime() < 120_000L) {
+                        mainHandler.post(() -> publishLiveLocation(share, lastKnown));
+                    }
+                }
+            } catch (final SecurityException | IllegalArgumentException ignored) {
+                // Continue with another provider if the user changed permission during startup.
+            }
+        }
+        return requested;
+    }
+
+    private void publishLiveLocation(final LiveLocationShare share, final Location location) {
+        final long now = System.currentTimeMillis();
+        if (liveLocationShare != share || now >= share.expiresAt) {
+            return;
+        }
+        if (share.lastLocation != null
+                && now - share.lastUpdateAt < LIVE_LOCATION_UPDATE_INTERVAL
+                && share.lastLocation.distanceTo(location) < LIVE_LOCATION_MIN_DISTANCE_METERS) {
+            return;
+        }
+        share.lastLocation = new Location(location);
+        share.lastUpdateAt = now;
+        final String body = locationUri(location);
+        final Message message = share.message;
+        if (message == null) {
+            final Message initial =
+                    new Message(
+                            share.conversation,
+                            body,
+                            share.encryption);
+            initial.setSkipEphemeralTimer(true);
+            if (share.counterpart != null) {
+                Message.configurePrivateMessage(initial, share.counterpart);
+            }
+            share.message = initial;
+            sendMessage(initial);
+        } else {
+            synchronized (message) {
+                message.putEditedForContinuousUpdates(
+                        message.getUuid(), message.getServerMsgId());
+                message.setBody(body);
+                message.setUuid(java.util.UUID.randomUUID().toString());
+            }
+            sendMessage(message);
+        }
+        persistLiveLocationShare(share);
+    }
+
+    private static String locationUri(final Location location) {
+        if (location.hasAccuracy() && location.getAccuracy() > 0) {
+            return String.format(
+                    Locale.US,
+                    "geo:%s,%s;u=%s",
+                    Double.toString(location.getLatitude()),
+                    Double.toString(location.getLongitude()),
+                    Float.toString(location.getAccuracy()));
+        }
+        return String.format(
+                Locale.US,
+                "geo:%s,%s",
+                Double.toString(location.getLatitude()),
+                Double.toString(location.getLongitude()));
+    }
+
+    private void sendLiveLocationStatus(
+            final LiveLocationShare share, final long durationMillis) {
+        final String duration =
+                durationMillis < 60 * 60_000L
+                        ? getString(R.string.live_location_duration_15_minutes)
+                        : durationMillis < 8 * 60 * 60_000L
+                                ? getString(R.string.live_location_duration_1_hour)
+                                : getString(R.string.live_location_duration_8_hours);
+        sendLiveLocationNotice(
+                share, getString(R.string.live_location_started, duration));
+    }
+
+    private void sendLiveLocationEnded(final LiveLocationShare share) {
+        sendLiveLocationNotice(share, getString(R.string.live_location_ended));
+    }
+
+    private void sendLiveLocationNotice(final LiveLocationShare share, final String body) {
+        final Message message = new Message(share.conversation, body, share.encryption);
+        if (share.counterpart != null) {
+            Message.configurePrivateMessage(message, share.counterpart);
+        }
+        sendMessage(message);
+    }
+
+    private void persistLiveLocationShare(final LiveLocationShare share) {
+        PreferenceManager.getDefaultSharedPreferences(this)
+                .edit()
+                .putString(PREF_LIVE_LOCATION_CONVERSATION, share.conversation.getUuid())
+                .putString(
+                        PREF_LIVE_LOCATION_MESSAGE,
+                        share.message == null ? null : share.message.getUuid())
+                .putString(
+                        PREF_LIVE_LOCATION_COUNTERPART,
+                        share.counterpart == null ? null : share.counterpart.toString())
+                .putInt(PREF_LIVE_LOCATION_ENCRYPTION, share.encryption)
+                .putLong(PREF_LIVE_LOCATION_EXPIRY, share.expiresAt)
+                .apply();
+    }
+
+    private void clearPersistedLiveLocationShare() {
+        PreferenceManager.getDefaultSharedPreferences(this)
+                .edit()
+                .remove(PREF_LIVE_LOCATION_CONVERSATION)
+                .remove(PREF_LIVE_LOCATION_MESSAGE)
+                .remove(PREF_LIVE_LOCATION_COUNTERPART)
+                .remove(PREF_LIVE_LOCATION_ENCRYPTION)
+                .remove(PREF_LIVE_LOCATION_EXPIRY)
+                .apply();
+        mNotificationService.cancel(NotificationService.LIVE_LOCATION_NOTIFICATION_ID);
+    }
+
+    private void restoreLiveLocationShare() {
+        final var preferences = PreferenceManager.getDefaultSharedPreferences(this);
+        final String conversationUuid = preferences.getString(PREF_LIVE_LOCATION_CONVERSATION, null);
+        final long expiresAt = preferences.getLong(PREF_LIVE_LOCATION_EXPIRY, 0);
+        if (conversationUuid == null || expiresAt <= System.currentTimeMillis()) {
+            clearPersistedLiveLocationShare();
+            return;
+        }
+        final Conversation conversation = findConversationByUuid(conversationUuid);
+        if (conversation == null || !hasLocationPermission() || !hasEnabledLocationProvider()) {
+            clearPersistedLiveLocationShare();
+            return;
+        }
+        final String messageUuid = preferences.getString(PREF_LIVE_LOCATION_MESSAGE, null);
+        final Message message =
+                messageUuid == null ? null : conversation.findSentMessageWithUuid(messageUuid);
+        final String counterpartString =
+                preferences.getString(PREF_LIVE_LOCATION_COUNTERPART, null);
+        final Jid counterpart;
+        try {
+            counterpart = counterpartString == null ? null : Jid.of(counterpartString);
+        } catch (final IllegalArgumentException e) {
+            clearPersistedLiveLocationShare();
+            return;
+        }
+        final LiveLocationShare share =
+                new LiveLocationShare(
+                        conversation,
+                        expiresAt,
+                        message,
+                        preferences.getInt(
+                                PREF_LIVE_LOCATION_ENCRYPTION,
+                                conversation.getNextEncryption()),
+                        counterpart);
+        liveLocationShare = share;
+        toggleForegroundService();
+        if (!requestLiveLocationUpdates(share)) {
+            liveLocationShare = null;
+            clearPersistedLiveLocationShare();
+            toggleForegroundService();
+            return;
+        }
+        share.expiry =
+                () -> {
+                    if (liveLocationShare == share) {
+                        stopLiveLocationSharing(true);
+                    }
+                };
+        mainHandler.postDelayed(share.expiry, expiresAt - System.currentTimeMillis());
+        mNotificationService.notify(
+                NotificationService.LIVE_LOCATION_NOTIFICATION_ID,
+                mNotificationService.createLiveLocationNotification(
+                        conversation, expiresAt));
     }
 
     public ListenableFuture<Void> attachFileToConversation(
@@ -550,6 +870,9 @@ public class XmppConnectionService extends Service {
                                     : intent.getStringExtra(RtpSessionActivity.EXTRA_SESSION_ID);
                     endRtpSession(sessionId);
                 }
+                break;
+            case ACTION_STOP_LIVE_LOCATION:
+                stopLiveLocationSharing(true);
                 break;
             case ACTION_PROVISION_ACCOUNT:
                 {
@@ -1331,6 +1654,7 @@ public class XmppConnectionService extends Service {
         } catch (final RuntimeException e) {
             // ignored
         }
+        stopLiveLocationSharing(liveLocationShare, false, false);
         destroyed = false;
         fileObserver.stopWatching();
         internalPingExecutor.shutdown();
@@ -1382,6 +1706,7 @@ public class XmppConnectionService extends Service {
         if (force
                 || mForceDuringOnCreate.get()
                 || ongoingVideoTranscoding
+                || liveLocationShare != null
                 || ongoing != null
                 || (appSettings.isKeepForegroundService() && hasEnabledAccounts())) {
             final Notification notification;
@@ -1432,7 +1757,9 @@ public class XmppConnectionService extends Service {
                                 requireMicrophone,
                                 microphonePermission,
                                 getSystemService(PowerManager.class)
-                                        .isIgnoringBatteryOptimizations(getPackageName()));
+                                        .isIgnoringBatteryOptimizations(getPackageName()),
+                                liveLocationShare != null,
+                                hasLocationPermission());
                 if (foregroundServiceType == ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) {
                     Log.w(Config.LOGTAG, "falling back to special use foreground service type");
                 }
@@ -1457,7 +1784,8 @@ public class XmppConnectionService extends Service {
         super.onTaskRemoved(rootIntent);
         if ((appSettings.isKeepForegroundService() && hasEnabledAccounts())
                 || mOngoingVideoTranscoding.get()
-                || ongoingCall.get() != null) {
+                || ongoingCall.get() != null
+                || liveLocationShare != null) {
             Log.d(Config.LOGTAG, "ignoring onTaskRemoved because foreground service is activated");
         } else {
             this.logoutAndSave(false);
@@ -1611,7 +1939,10 @@ public class XmppConnectionService extends Service {
         im.conversations.android.xmpp.model.stanza.Message packet = null;
         final boolean addToConversation = !message.edited();
         boolean saveInDb = addToConversation;
-        if (!resend && addToConversation && message.getEphemeralTimer() == 0) {
+        if (!resend
+                && addToConversation
+                && message.getEphemeralTimer() == 0
+                && !message.skipsEphemeralTimer()) {
             final long ephemeralTimer = conversation.getMessageExpiryTimer();
             if (ephemeralTimer > 0) {
                 message.setEphemeralTimer(ephemeralTimer);
@@ -1891,6 +2222,7 @@ public class XmppConnectionService extends Service {
                         }
                         mNotificationService.finishBacklog();
                         restoredFromDatabaseLatch.countDown();
+                        mainHandler.post(this::restoreLiveLocationShare);
                         final long diffMessageRestore =
                                 SystemClock.elapsedRealtime() - startMessageRestore;
                         Log.d(
@@ -4174,6 +4506,32 @@ public class XmppConnectionService extends Service {
             } else {
                 Log.e(Config.LOGTAG, "restricting broadcast of event " + action);
             }
+        }
+    }
+
+    private static final class LiveLocationShare {
+        private final Conversation conversation;
+        private final long expiresAt;
+        private final int encryption;
+        private final Jid counterpart;
+        private Message message;
+        private LocationManager locationManager;
+        private LocationListener listener;
+        private Location lastLocation;
+        private long lastUpdateAt;
+        private Runnable expiry;
+
+        private LiveLocationShare(
+                final Conversation conversation,
+                final long expiresAt,
+                final Message message,
+                final int encryption,
+                final Jid counterpart) {
+            this.conversation = conversation;
+            this.expiresAt = expiresAt;
+            this.message = message;
+            this.encryption = encryption;
+            this.counterpart = counterpart;
         }
     }
 

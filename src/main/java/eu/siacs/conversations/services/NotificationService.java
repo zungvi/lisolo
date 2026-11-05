@@ -25,6 +25,7 @@ import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.text.SpannableString;
+import android.text.format.DateFormat;
 import android.text.style.StyleSpan;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -75,6 +76,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -106,6 +108,7 @@ public class NotificationService {
     private static final int DELIVERY_FAILED_NOTIFICATION_ID = NOTIFICATION_ID_MULTIPLIER * 13;
     public static final int ONGOING_VIDEO_TRANSCODING_NOTIFICATION_ID =
             NOTIFICATION_ID_MULTIPLIER * 14;
+    public static final int LIVE_LOCATION_NOTIFICATION_ID = NOTIFICATION_ID_MULTIPLIER * 15;
     private final XmppConnectionService mXmppConnectionService;
     private final LinkedHashMap<String, ArrayList<Message>> notifications = new LinkedHashMap<>();
     private final HashMap<Conversation, AtomicInteger> mBacklogMessageCounter = new HashMap<>();
@@ -220,6 +223,17 @@ public class NotificationService {
         ongoingCallsChannel.setShowBadge(false);
         ongoingCallsChannel.setGroup("calls");
         notificationManager.createNotificationChannel(ongoingCallsChannel);
+
+        final NotificationChannel liveLocationChannel =
+                new NotificationChannel(
+                        "live_location",
+                        c.getString(R.string.live_location_notification_channel_name),
+                        NotificationManager.IMPORTANCE_LOW);
+        liveLocationChannel.setDescription(
+                c.getString(R.string.live_location_notification_channel_description));
+        liveLocationChannel.setShowBadge(false);
+        liveLocationChannel.setGroup("status");
+        notificationManager.createNotificationChannel(liveLocationChannel);
 
         final NotificationChannel missedCallsChannel =
                 new NotificationChannel(
@@ -1857,6 +1871,31 @@ public class NotificationService {
         }
 
         return mBuilder.build();
+    }
+
+    Notification createLiveLocationNotification(
+            final Conversation conversation, final long expiresAt) {
+        final var context = mXmppConnectionService;
+        final var builder =
+                new NotificationCompat.Builder(context, "live_location")
+                        .setSmallIcon(R.drawable.ic_location_pin_24dp)
+                        .setContentTitle(R.string.live_location_notification_title)
+                        .setContentText(
+                                context.getString(
+                                        R.string.live_location_notification_text,
+                                        conversation.getName(),
+                                        DateFormat.getTimeFormat(context).format(new Date(expiresAt))))
+                        .setContentIntent(createContentIntent(conversation.getUuid(), null))
+                        .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                        .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                        .setOnlyAlertOnce(true)
+                        .setOngoing(true);
+        builder.addAction(
+                R.drawable.ic_call_end_24dp,
+                context.getString(R.string.live_location_stop_action),
+                pendingServiceIntent(
+                        context, XmppConnectionService.ACTION_STOP_LIVE_LOCATION, 0x4c4f43));
+        return builder.build();
     }
 
     @RequiresApi(api = Build.VERSION_CODES.O)
