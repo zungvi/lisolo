@@ -556,6 +556,14 @@ public class XmppConnection implements Runnable {
             Log.d(Config.LOGTAG, account.getJid().asBareJid().toString() + ": " + e.getMessage());
             this.changeState(Account.State.OFFLINE);
             this.attempt = Math.max(0, this.attempt - 1);
+        } catch (final RuntimeException e) {
+            Log.e(
+                    Config.LOGTAG,
+                    account.getJid().asBareJid()
+                            + ": unexpected failure while processing XMPP stream",
+                    e);
+            this.changeState(Account.State.OFFLINE);
+            this.attempt = Math.max(0, this.attempt - 1);
         } finally {
             if (Thread.currentThread().isInterrupted()) {
                 Log.d(
@@ -1302,14 +1310,20 @@ public class XmppConnection implements Runnable {
 
     private <S extends Stanza> @NonNull S processPacket(final Tag currentTag, final Class<S> clazz)
             throws IOException {
+        return processPacket(currentTag, clazz, false);
+    }
+
+    private <S extends Stanza> @NonNull S processPacket(
+            final Tag currentTag, final Class<S> clazz, final boolean countAfterHandling)
+            throws IOException {
         final S stanza = tagReader.readElement(currentTag, clazz);
         if (stanzasReceived == Integer.MAX_VALUE) {
             resetStreamId();
             throw new IOException("time to restart the session. cant handle >2 billion pcks");
         }
-        if (inSmacksSession) {
+        if (inSmacksSession && !countAfterHandling) {
             ++stanzasReceived;
-        } else if (features.sm()) {
+        } else if (!inSmacksSession && features.sm()) {
             Log.d(
                     Config.LOGTAG,
                     account.getJid().asBareJid()
@@ -1322,6 +1336,12 @@ public class XmppConnection implements Runnable {
             Log.d(Config.LOGTAG, "[background stanza] " + stanza);
         }
         return stanza;
+    }
+
+    private void markPacketHandled() {
+        if (inSmacksSession) {
+            ++stanzasReceived;
+        }
     }
 
     private void processIq(final Tag currentTag) throws IOException {
@@ -1404,7 +1424,10 @@ public class XmppConnection implements Runnable {
 
     private void processMessage(final Tag currentTag) throws IOException {
         final var packet =
-                processPacket(currentTag, im.conversations.android.xmpp.model.stanza.Message.class);
+                processPacket(
+                        currentTag,
+                        im.conversations.android.xmpp.model.stanza.Message.class,
+                        true);
         if (packet.isInvalid()) {
             Log.e(
                     Config.LOGTAG,
@@ -1413,6 +1436,7 @@ public class XmppConnection implements Runnable {
                             + "' to='"
                             + packet.getTo()
                             + "'");
+            markPacketHandled();
             return;
         }
         if (Thread.currentThread().isInterrupted()) {
@@ -1423,6 +1447,7 @@ public class XmppConnection implements Runnable {
             return;
         }
         this.messageListener.accept(packet);
+        markPacketHandled();
     }
 
     private void processPresence(final Tag currentTag) throws IOException {

@@ -5,6 +5,7 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.DatabaseUtils;
 import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteException;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.os.Environment;
 import android.os.SystemClock;
@@ -1272,7 +1273,18 @@ public class DatabaseBackend extends SQLiteOpenHelper {
 
     public void createMessage(Message message) {
         SQLiteDatabase db = this.getWritableDatabase();
-        db.insert(Message.TABLENAME, null, message.getContentValues());
+        final long rowId;
+        try {
+            rowId = db.insert(Message.TABLENAME, null, message.getContentValues());
+        } catch (final SQLiteException e) {
+            Log.e(Config.LOGTAG, "failed to persist message " + message.getUuid(), e);
+            throw e;
+        }
+        if (rowId == -1) {
+            final String error = "SQLite did not insert message " + message.getUuid();
+            Log.e(Config.LOGTAG, error);
+            throw new SQLiteException(error);
+        }
     }
 
     public void createAccount(Account account) {

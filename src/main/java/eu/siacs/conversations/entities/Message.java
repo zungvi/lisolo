@@ -716,17 +716,9 @@ public class Message extends AbstractEntity
                     || Edit.wasPreviouslyEditedServerMsgId(edits, message.getServerMsgId());
         } else if (Edit.wasPreviouslyEditedServerMsgId(edits, message.getServerMsgId())) {
             return true;
-        } else if (this.body == null || this.counterpart == null) {
+        } else if (this.counterpart == null) {
             return false;
         } else {
-            String body, otherBody;
-            if (this.hasFileOnRemoteHost()) {
-                body = getFileParams().url;
-                otherBody = message.body == null ? null : message.body.trim();
-            } else {
-                body = this.body;
-                otherBody = message.body;
-            }
             final boolean matchingCounterpart = this.counterpart.equals(message.getCounterpart());
             if (message.getRemoteMsgId() != null) {
                 final boolean hasUuid =
@@ -738,14 +730,12 @@ public class Message extends AbstractEntity
                 }
                 return (message.getRemoteMsgId().equals(this.remoteMsgId)
                                 || message.getRemoteMsgId().equals(this.uuid))
-                        && matchingCounterpart
-                        && (body.equals(otherBody)
-                                || (message.getEncryption() == Message.ENCRYPTION_PGP && hasUuid));
+                        && matchingCounterpart;
             } else {
-                return this.remoteMsgId == null
-                        && matchingCounterpart
-                        && body.equals(otherBody)
-                        && Math.abs(this.getTimeSent() - message.getTimeSent()) < 20_000;
+                // Without a protocol ID, matching sender, body, and nearby timestamps cannot
+                // distinguish an archive replay from a second intentional identical message.
+                // Prefer retaining both messages over silently discarding a legitimate one.
+                return false;
             }
         }
     }

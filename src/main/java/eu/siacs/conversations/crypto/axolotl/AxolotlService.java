@@ -1897,9 +1897,7 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
 
     public XmppAxolotlMessage.XmppAxolotlPlaintextMessage processReceivingPayloadMessage(
             XmppAxolotlMessage message, boolean postponePreKeyMessageHandling)
-            throws NotEncryptedForThisDeviceException,
-                    BrokenSessionException,
-                    OutdatedSenderException {
+            throws CryptoFailedException {
         XmppAxolotlMessage.XmppAxolotlPlaintextMessage plaintextMessage = null;
 
         XmppAxolotlSession session = getReceivingSession(message);
@@ -1922,11 +1920,6 @@ public class AxolotlService implements OnAdvancedStreamFeaturesLoaded {
         } catch (final OutdatedSenderException e) {
             Log.e(Config.LOGTAG, account.getJid().asBareJid() + ": " + e.getMessage());
             throw e;
-        } catch (CryptoFailedException e) {
-            Log.w(
-                    Config.LOGTAG,
-                    getLogprefix(account) + "Failed to decrypt message from " + message.getFrom(),
-                    e);
         }
 
         if (session.isFresh() && plaintextMessage != null) {

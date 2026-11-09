@@ -7,6 +7,7 @@ import eu.siacs.conversations.AppSettings;
 import eu.siacs.conversations.Config;
 import eu.siacs.conversations.crypto.axolotl.AxolotlService;
 import eu.siacs.conversations.crypto.axolotl.BrokenSessionException;
+import eu.siacs.conversations.crypto.axolotl.CryptoFailedException;
 import eu.siacs.conversations.crypto.axolotl.NotEncryptedForThisDeviceException;
 import eu.siacs.conversations.crypto.axolotl.OutdatedSenderException;
 import eu.siacs.conversations.crypto.axolotl.XmppAxolotlMessage;
@@ -82,12 +83,13 @@ public class MessageParser extends AbstractParser
         try {
             xmppAxolotlMessage = XmppAxolotlMessage.fromElement(axolotlMessage, from.asBareJid());
         } catch (final Exception e) {
-            Log.d(
+            Log.w(
                     Config.LOGTAG,
                     conversation.getAccount().getJid().asBareJid()
                             + ": invalid omemo message received "
-                            + e.getMessage());
-            return null;
+                            + e.getMessage(),
+                    e);
+            return new Message(conversation, "", Message.ENCRYPTION_AXOLOTL_FAILED, status);
         }
         if (xmppAxolotlMessage.hasPayload()) {
             final XmppAxolotlMessage.XmppAxolotlPlaintextMessage plaintextMessage;
@@ -111,13 +113,22 @@ public class MessageParser extends AbstractParser
                 } else {
                     Log.d(
                             Config.LOGTAG,
-                            "ignoring broken session exception because checkForDuplicates failed");
-                    return null;
+                            "not reporting broken session during a possible archive duplicate");
+                    return new Message(
+                            conversation, "", Message.ENCRYPTION_AXOLOTL_FAILED, status);
                 }
             } catch (NotEncryptedForThisDeviceException e) {
                 return new Message(
                         conversation, "", Message.ENCRYPTION_AXOLOTL_NOT_FOR_THIS_DEVICE, status);
             } catch (OutdatedSenderException e) {
+                return new Message(conversation, "", Message.ENCRYPTION_AXOLOTL_FAILED, status);
+            } catch (CryptoFailedException e) {
+                Log.w(
+                        Config.LOGTAG,
+                        conversation.getAccount().getJid().asBareJid()
+                                + ": could not decrypt OMEMO message from "
+                                + from,
+                        e);
                 return new Message(conversation, "", Message.ENCRYPTION_AXOLOTL_FAILED, status);
             }
             if (plaintextMessage != null) {
@@ -135,6 +146,9 @@ public class MessageParser extends AbstractParser
                                 + plaintextMessage.getFingerprint());
                 return finishedMessage;
             }
+            // A reflected OMEMO stanza from this device is intentionally not addressed back to
+            // this device. AxolotlService returns null for that case so the reflection is ignored.
+            return null;
         } else {
             Log.d(
                     Config.LOGTAG,
@@ -717,23 +731,12 @@ public class MessageParser extends AbstractParser
                 }
             }
 
-            if (query != null
-                    && query.getPagingOrder() == MessageArchiveManager.PagingOrder.REVERSE) {
-                conversation.prepend(query.getActualInThisQuery(), message);
-            } else {
-                conversation.add(message);
-            }
-            if (query != null) {
-                query.incrementActualMessageCount();
-            }
-
+            boolean markConversationRead = false;
+            boolean recordActivity = false;
             if (query == null || query.isCatchup()) { // either no mam or catchup
                 if (status == Message.STATUS_SEND || status == Message.STATUS_SEND_RECEIVED) {
-                    mXmppConnectionService.markRead(conversation);
-                    if (query == null) {
-                        getManager(ActivityManager.class)
-                                .record(from, ActivityManager.ActivityType.MESSAGE);
-                    }
+                    markConversationRead = true;
+                    recordActivity = query == null;
                 } else {
                     message.markUnread();
                     notify = true;
@@ -743,6 +746,26 @@ public class MessageParser extends AbstractParser
                     && message.getEphemeralTimer() > 0
                     && message.getEphemeralStartTime() == 0) {
                 message.setEphemeralStartTime(System.currentTimeMillis());
+            }
+
+            // Persist before exposing the message in memory. If SQLite cannot save it, the
+            // exception aborts this stanza so XMPP Stream Management leaves it unacknowledged.
+            mXmppConnectionService.databaseBackend.createMessage(message);
+            if (query != null
+                    && query.getPagingOrder() == MessageArchiveManager.PagingOrder.REVERSE) {
+                conversation.prepend(query.getActualInThisQuery(), message);
+            } else {
+                conversation.add(message);
+            }
+            if (query != null) {
+                query.incrementActualMessageCount();
+            }
+            if (markConversationRead) {
+                mXmppConnectionService.markRead(conversation);
+                if (recordActivity) {
+                    getManager(ActivityManager.class)
+                            .record(from, ActivityManager.ActivityType.MESSAGE);
+                }
             }
 
             if (message.getEncryption() == Message.ENCRYPTION_PGP) {
@@ -768,7 +791,6 @@ public class MessageParser extends AbstractParser
                 getManager(DeliveryReceiptManager.class).processRequest(packet, query);
             }
 
-            mXmppConnectionService.databaseBackend.createMessage(message);
             final HttpConnectionManager manager =
                     this.mXmppConnectionService.getHttpConnectionManager();
             final var autoAcceptFileSize =
