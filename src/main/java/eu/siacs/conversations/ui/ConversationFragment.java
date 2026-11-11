@@ -113,6 +113,7 @@ import eu.siacs.conversations.ui.util.ActivityResult;
 import eu.siacs.conversations.ui.util.Attachment;
 import eu.siacs.conversations.ui.util.ConversationMenuConfigurator;
 import eu.siacs.conversations.ui.util.DateSeparator;
+import eu.siacs.conversations.ui.util.MainThreadExecutor;
 import eu.siacs.conversations.ui.util.EditMessageActionModeCallback;
 import eu.siacs.conversations.ui.util.MenuDoubleTabUtil;
 import eu.siacs.conversations.ui.util.MucDetailsContextMenuHelper;
@@ -147,6 +148,7 @@ import eu.siacs.conversations.xmpp.jingle.MujiCallCoordinator;
 import eu.siacs.conversations.xmpp.jingle.OngoingRtpSession;
 import eu.siacs.conversations.xmpp.jingle.RtpCapability;
 import eu.siacs.conversations.xmpp.jingle.RtpContentMap;
+import eu.siacs.conversations.xmpp.jingle.WebRTCWrapper;
 import eu.siacs.conversations.xmpp.manager.BlockingManager;
 import eu.siacs.conversations.xmpp.manager.ChatStateManager;
 import eu.siacs.conversations.xmpp.manager.HttpUploadManager;
@@ -2220,7 +2222,7 @@ public class ConversationFragment extends XmppFragment
                         .getManager(MultiUserChatManager.class);
         Futures.addCallback(
                 multiUserChatManager.prepareMuji(conversation),
-                new FutureCallback<>() {
+                new FutureCallback<Void>() {
                     @Override
                     public void onSuccess(@Nullable Void ignored) {
                         if (!isAdded()) {
@@ -2283,7 +2285,7 @@ public class ConversationFragment extends XmppFragment
         final MujiCallCoordinator coordinator;
         try {
             coordinator = jingleManager.getOrCreateMujiCallCoordinator(conversation);
-        } catch (final RuntimeException e) {
+        } catch (final WebRTCWrapper.InitializationException | RuntimeException e) {
             clearPreparingMujiPresence(multiUserChatManager);
             Toast.makeText(
                             requireContext(),
@@ -2311,7 +2313,7 @@ public class ConversationFragment extends XmppFragment
         }
         Futures.addCallback(
                 preparedPeer.prepareMujiSessionInitiate(),
-                new FutureCallback<>() {
+                new FutureCallback<RtpContentMap>() {
                     @Override
                     public void onSuccess(final RtpContentMap proposedMedia) {
                         startMujiCallWithPreparedMedia(

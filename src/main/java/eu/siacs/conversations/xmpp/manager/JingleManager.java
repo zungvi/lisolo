@@ -487,9 +487,7 @@ public class JingleManager extends AbstractManager {
         }
         synchronized (mujiCallCoordinators) {
             for (final MujiCallCoordinator coordinator : mujiCallCoordinators.values()) {
-                if (!coordinator.isEnding()
-                        && !coordinator.isFinished()
-                        && coordinator.getCallIntegration() != callIntegration) {
+                if (!coordinator.isEnding() && !coordinator.isFinished()) {
                     return true;
                 }
             }

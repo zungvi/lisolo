@@ -47,7 +47,7 @@ public final class MujiCodecCompatibility {
             }
             final Map<String, Map<Integer, Codec>> contents = new LinkedHashMap<>();
             for (final Muji.Content content : muji.getContents()) {
-                final String name = content.getName();
+                final String name = content.getContentName();
                 if (name == null) {
                     issues.add("Participant " + participant + " advertised content without a name");
                     continue;

@@ -124,8 +124,8 @@ android {
         // protection off in the Play Console.
         minSdkVersion 24
         targetSdkVersion 36
-        versionCode 42169
-        versionName "2.19.8r4"
+        versionCode 42170
+        versionName "2.19.8r5"
         archivesBaseName += "-$versionName"
         applicationId "com.zungvi.messenger"
         resValue "string", "applicationId", applicationId

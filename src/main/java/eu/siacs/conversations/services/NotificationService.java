@@ -1879,7 +1879,7 @@ public class NotificationService {
         final var builder =
                 new NotificationCompat.Builder(context, "live_location")
                         .setSmallIcon(R.drawable.ic_location_pin_24dp)
-                        .setContentTitle(R.string.live_location_notification_title)
+                        .setContentTitle(context.getText(R.string.live_location_notification_title))
                         .setContentText(
                                 context.getString(
                                         R.string.live_location_notification_text,

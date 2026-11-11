@@ -90,7 +90,7 @@ public class Muji extends Extension {
             return Strings.emptyToNull(getAttribute("creator"));
         }
 
-        public String getName() {
+        public String getContentName() {
             return Strings.emptyToNull(getAttribute("name"));
         }
 
